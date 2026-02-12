@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi } from 'lucide-react';
+import logoPitaya from './assets/logo-pitaya.png';
 import { PLANNING_NETTOYAGE, JOURS } from './config/planning';
 import { STORAGE_KEY, USER_NAME_KEY, CATEGORY_COLORS, PRIORITY_COLORS, FILTER_OPTIONS } from './config/constants';
 import { getStoredSupabaseConfig, isSupabaseConfigured, initSupabaseStorage } from './lib/storage-supabase';
@@ -217,10 +218,10 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-100 relative">
-      {/* Background logo Pitaya (watermark) */}
+      {/* Background logo Pitaya */}
       <div
-        className="fixed inset-0 bg-center bg-no-repeat opacity-[0.04] pointer-events-none z-0"
-        style={{ backgroundImage: "url('/logo-pitaya.png')", backgroundSize: 'min(60vw, 480px)' }}
+        className="fixed inset-0 bg-center bg-no-repeat opacity-[0.18] pointer-events-none z-0"
+        style={{ backgroundImage: `url(${logoPitaya})`, backgroundSize: 'min(70vw, 520px)' }}
         aria-hidden
       />
       <div className="max-w-4xl mx-auto p-4 pb-8 relative z-10">
