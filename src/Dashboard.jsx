@@ -32,6 +32,13 @@ function isOverdue(task) {
   return new Date(task.deadline) < new Date();
 }
 
+/** Affiche un nom lisible : si c’est une URL (ex. Supabase), affiche "Équipe" */
+function displayName(value) {
+  if (!value) return '';
+  if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) return 'Équipe';
+  return value;
+}
+
 export default function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState({
@@ -220,8 +227,12 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-100 relative">
       {/* Background logo Pitaya */}
       <div
-        className="fixed inset-0 bg-center bg-no-repeat opacity-[0.18] pointer-events-none z-0"
-        style={{ backgroundImage: `url(${logoPitaya})`, backgroundSize: 'min(70vw, 520px)' }}
+        className="fixed inset-0 bg-center bg-no-repeat pointer-events-none z-0"
+        style={{
+          backgroundImage: `url(${logoPitaya})`,
+          backgroundSize: 'min(72vw, 560px)',
+          opacity: 0.22,
+        }}
         aria-hidden
       />
       <div className="max-w-4xl mx-auto p-4 pb-8 relative z-10">
@@ -243,7 +254,7 @@ export default function Dashboard() {
                   <Wifi className="w-3.5 h-3.5" /> Sync équipe
                 </span>
               )}
-              <span className="text-slate-500 text-sm hidden sm:inline">{userName}</span>
+              <span className="text-slate-500 text-sm hidden sm:inline">{displayName(userName)}</span>
               <button
                 onClick={loadTasks}
                 className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -409,7 +420,7 @@ export default function Dashboard() {
                         )}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">
-                        Créée par {task.createdBy} · {task.completed && task.completedBy && `Terminée par ${task.completedBy}`}
+                        Créée par {displayName(task.createdBy)} · {task.completed && task.completedBy && `Terminée par ${displayName(task.completedBy)}`}
                       </p>
                     </div>
                     <button
