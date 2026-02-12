@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { initSupabaseStorage, isSupabaseConfigured } from './storage-supabase.js';
-import './storage-polyfill';
+import { initSupabaseStorage, isSupabaseConfigured } from './lib/storage-supabase.js';
+import './lib/storage-polyfill.js';
 import './index.css';
 import App from './App.jsx';
 

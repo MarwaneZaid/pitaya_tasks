@@ -1,6 +1,5 @@
 /**
- * Polyfill pour window.storage (API type Glide/Bubble).
- * Utilise localStorage. Remplacé par Supabase si VITE_SUPABASE_URL est défini (main.jsx).
+ * Polyfill window.storage (localStorage). Remplacé par Supabase quand configuré (main.jsx).
  */
 const PREFIX_SHARED = 'shared_';
 

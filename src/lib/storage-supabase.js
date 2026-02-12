@@ -1,6 +1,6 @@
 /**
- * Stockage partagé via Supabase : tous les managers voient les mêmes tâches.
- * Config possible par variables d'environnement OU dans l'app (localStorage).
+ * Stockage partagé via Supabase : synchronisation entre tous les managers (téléphones inclus).
+ * Config : variables d'environnement OU saisie dans l'app (localStorage).
  */
 import { createClient } from '@supabase/supabase-js';
 

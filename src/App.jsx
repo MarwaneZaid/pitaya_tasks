@@ -1,5 +1,5 @@
-import RestaurantTaskManagerShared from './RestaurantTaskManagerShared.jsx';
+import Dashboard from './Dashboard';
 
 export default function App() {
-  return <RestaurantTaskManagerShared />;
+  return <Dashboard />;
 }
