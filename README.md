@@ -52,3 +52,20 @@ npm run dev
 ```
 
 Ouvre http://localhost:5173. Pour tester le partage en local, configure Supabase via l’icône ⚙️ dans l’app (même principe qu’en production).
+
+---
+
+## Mettre le projet sur GitHub
+
+1. Va sur **https://github.com/new**.
+2. Nom du repo : par ex. **`restaurant-tasks`** (ou `App_tasks`).
+3. **Create repository** (sans cocher « Add README »).
+4. Dans ton terminal, à la racine du projet :
+
+```bash
+cd /Users/skat/Documents/App_tasks
+git remote add origin https://github.com/TON_USERNAME/restaurant-tasks.git
+git push -u origin main
+```
+
+Remplace `TON_USERNAME` et `restaurant-tasks` par ton compte GitHub et le nom du repo. Si GitHub te demande de t’authentifier, utilise un **Personal Access Token** (Settings → Developer settings → Personal access tokens) à la place du mot de passe.
