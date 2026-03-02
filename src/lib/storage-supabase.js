@@ -25,6 +25,11 @@ export function isSupabaseConfigured() {
   return !!(url && anonKey);
 }
 
+/** True si la config vient des variables d’env (déploiement) : pas besoin de configurer chaque appareil */
+export function isConfigFromEnv() {
+  return !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+}
+
 export function setSupabaseConfig(url, anonKey) {
   if (typeof localStorage === 'undefined') return;
   if (url) localStorage.setItem(LS_URL, url.trim());

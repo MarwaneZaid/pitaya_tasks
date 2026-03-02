@@ -1,8 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi } from 'lucide-react';
-import logoPitaya from './assets/logo-pitaya.png';
 import { PLANNING_NETTOYAGE, JOURS } from './config/planning';
-import { STORAGE_KEY, USER_NAME_KEY, CATEGORY_COLORS, PRIORITY_COLORS, FILTER_OPTIONS } from './config/constants';
+import {
+  STORAGE_KEY,
+  USER_NAME_KEY,
+  CATEGORY_COLORS,
+  PRIORITY_COLORS,
+  FILTER_OPTIONS,
+  TASK_TYPE_QUOTIDIEN,
+  TASK_TYPE_ANNEXE,
+  TASK_TYPE_SEMAINE,
+  TASK_TYPE_LABELS,
+  TASK_TYPE_COLORS,
+} from './config/constants';
+import { applyAnnexeRollover } from './lib/taskRollover';
+import { shouldShowEndOfDayReminder } from './lib/reminder';
 import { getStoredSupabaseConfig, isSupabaseConfigured, initSupabaseStorage } from './lib/storage-supabase';
 import LoginScreen from './components/LoginScreen';
 import SettingsModal from './components/SettingsModal';
@@ -39,15 +51,23 @@ function displayName(value) {
   return value;
 }
 
+function getTodayDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function Dashboard() {
   const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState({
     title: '',
     category: 'cuisine',
     priority: 'moyenne',
+    taskType: TASK_TYPE_ANNEXE,
     assignedTo: '',
     deadline: '',
+    scheduledFor: '',
   });
+  const [reminderDismissed, setReminderDismissed] = useState(false);
+  const [showEndOfDayReminder, setShowEndOfDayReminder] = useState(false);
   const [filter, setFilter] = useState('all');
   const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0, urgent: 0 });
   const [userName, setUserName] = useState('');
@@ -74,14 +94,26 @@ export default function Dashboard() {
     setStats({ total: tasks.length, completed, pending, urgent });
   }, [tasks]);
 
+  // Rappel fin de journée : après 18h, alerte si tâches non réalisées
+  useEffect(() => {
+    const hour = new Date().getHours();
+    const pending = tasks.filter((t) => !t.completed).length;
+    if (shouldShowEndOfDayReminder(hour, pending, reminderDismissed, loading)) {
+      setShowEndOfDayReminder(true);
+    }
+  }, [tasks, loading, reminderDismissed]);
+
   const loadTasks = async () => {
     setLoading(true);
     try {
       const result = await window.storage.get(STORAGE_KEY, true);
-      if (result?.value) {
-        setTasks(JSON.parse(result.value));
-        setLastUpdate(new Date());
-      } else setTasks([]);
+      let list = [];
+      if (result?.value) list = JSON.parse(result.value);
+      const today = getTodayDate();
+      const { tasks: updated, changed } = applyAnnexeRollover(list, today);
+      if (changed) await window.storage.set(STORAGE_KEY, JSON.stringify(updated), true);
+      setTasks(changed ? updated : list);
+      setLastUpdate(new Date());
     } catch {
       setTasks([]);
     }
@@ -100,9 +132,11 @@ export default function Dashboard() {
 
   const addTask = () => {
     if (!newTask.title.trim()) return;
+    const today = getTodayDate();
     const task = {
       id: Date.now(),
       ...newTask,
+      scheduledFor: newTask.scheduledFor || today,
       completed: false,
       createdAt: new Date().toISOString(),
       createdBy: userName,
@@ -112,7 +146,15 @@ export default function Dashboard() {
     const updated = [...tasks, task];
     setTasks(updated);
     saveTasks(updated);
-    setNewTask({ title: '', category: 'cuisine', priority: 'moyenne', assignedTo: '', deadline: '' });
+    setNewTask({
+      title: '',
+      category: 'cuisine',
+      priority: 'moyenne',
+      taskType: TASK_TYPE_ANNEXE,
+      assignedTo: '',
+      deadline: '',
+      scheduledFor: '',
+    });
   };
 
   const addIndispensableTasksForToday = async () => {
@@ -129,11 +171,14 @@ export default function Dashboard() {
       return;
     }
     const now = Date.now();
+    const today = getTodayDate();
     const newTasks = toAdd.map((item, i) => ({
       id: now + i,
       title: item.title,
       category: 'nettoyage',
       priority: item.priority,
+      taskType: TASK_TYPE_QUOTIDIEN,
+      scheduledFor: today,
       assignedTo: '',
       deadline: '',
       completed: false,
@@ -186,10 +231,9 @@ export default function Dashboard() {
       case 'active': return tasks.filter((t) => !t.completed);
       case 'completed': return tasks.filter((t) => t.completed);
       case 'my-tasks': return tasks.filter((t) => t.assignedTo === userName);
-      case 'cuisine':
-      case 'service':
-      case 'nettoyage':
-      case 'stock': return tasks.filter((t) => t.category === filter);
+      case 'quotidien':
+      case 'annexe':
+      case 'semaine': return tasks.filter((t) => (t.taskType || TASK_TYPE_ANNEXE) === filter);
       default: return tasks;
     }
   };
@@ -224,18 +268,40 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-100 relative">
-      {/* Background logo Pitaya */}
-      <div
-        className="fixed inset-0 bg-center bg-no-repeat pointer-events-none z-0"
-        style={{
-          backgroundImage: `url(${logoPitaya})`,
-          backgroundSize: 'min(72vw, 560px)',
-          opacity: 0.22,
-        }}
-        aria-hidden
-      />
-      <div className="max-w-4xl mx-auto p-4 pb-8 relative z-10">
+    <div className="min-h-screen bg-slate-100">
+      <div className="max-w-4xl mx-auto p-4 pb-8">
+        {/* Rappel fin de journée */}
+        {showEndOfDayReminder && stats.pending > 0 && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+            <span className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <strong>Rappel fin de journée</strong> : {stats.pending} tâche{stats.pending > 1 ? 's' : ''} non réalisée{stats.pending > 1 ? 's' : ''}.
+            </span>
+            <button
+              onClick={() => { setShowEndOfDayReminder(false); setReminderDismissed(true); }}
+              className="shrink-0 rounded-lg bg-amber-200 px-3 py-1.5 text-sm font-medium hover:bg-amber-300"
+            >
+              J'ai compris
+            </button>
+          </div>
+        )}
+
+        {/* Bandeau sync désactivée : explique pourquoi les tâches ne sont pas les mêmes entre appareils */}
+        {!isSupabaseConfigured() && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-300 bg-slate-100 p-4 text-slate-700">
+            <span className="flex items-center gap-2 text-sm">
+              <Wifi className="w-4 h-4 text-slate-500 shrink-0" />
+              <strong>Liste locale uniquement.</strong> Les tâches ne sont pas synchronisées avec les autres (téléphones, autres noms). Pour voir la même liste partout, configurez la synchronisation dans les Réglages (icône engrenage).
+            </span>
+            <button
+              onClick={openSettings}
+              className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
+            >
+              Configurer la sync
+            </button>
+          </div>
+        )}
+
         {/* Header */}
         <header className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6 mb-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -303,16 +369,6 @@ export default function Dashboard() {
                 className="col-span-full md:col-span-2 px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
               />
               <select
-                value={newTask.category}
-                onChange={(e) => setNewTask((t) => ({ ...t, category: e.target.value }))}
-                className="px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800"
-              >
-                <option value="cuisine">Cuisine</option>
-                <option value="service">Service</option>
-                <option value="nettoyage">Nettoyage</option>
-                <option value="stock">Stock</option>
-              </select>
-              <select
                 value={newTask.priority}
                 onChange={(e) => setNewTask((t) => ({ ...t, priority: e.target.value }))}
                 className="px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800"
@@ -321,6 +377,19 @@ export default function Dashboard() {
                 <option value="moyenne">Moyenne</option>
                 <option value="haute">Haute</option>
               </select>
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-slate-600">Type de tâche</label>
+                <select
+                  value={newTask.taskType}
+                  onChange={(e) => setNewTask((t) => ({ ...t, taskType: e.target.value }))}
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800"
+                  title="Rouge = quotidien, Orange = annexe, Vert = semaine"
+                >
+                  <option value={TASK_TYPE_QUOTIDIEN}>🔴 Quotidien obligatoire</option>
+                  <option value={TASK_TYPE_ANNEXE}>🟠 Annexe</option>
+                  <option value={TASK_TYPE_SEMAINE}>🟢 À faire dans la semaine</option>
+                </select>
+              </div>
               <input
                 type="text"
                 placeholder="Assigné à..."
@@ -343,19 +412,28 @@ export default function Dashboard() {
             </div>
           </section>
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2">
-            {FILTER_OPTIONS.map(({ id, label }) => (
-              <button
-                key={id}
-                onClick={() => setFilter(id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  filter === id ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          {/* Filtres : Toutes / Quotidien / Annexe / Semaine */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-slate-600 mr-1">Filtrer :</span>
+            {FILTER_OPTIONS.map(({ id, label, color }) => {
+              const isActive = filter === id;
+              const activeClass =
+                color === 'red' ? 'bg-red-500 text-white hover:bg-red-600' :
+                color === 'orange' ? 'bg-orange-500 text-white hover:bg-orange-600' :
+                color === 'green' ? 'bg-green-500 text-white hover:bg-green-600' :
+                'bg-slate-600 text-white hover:bg-slate-700';
+              return (
+                <button
+                  key={id}
+                  onClick={() => setFilter(id)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? activeClass : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
             {stats.completed > 0 && (
               <button onClick={clearCompleted} className="ml-auto px-3 py-1.5 text-sm text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
                 Effacer terminées
@@ -373,8 +451,14 @@ export default function Dashboard() {
               {sorted.map((task) => (
                 <li
                   key={task.id}
-                  className={`bg-white rounded-xl border-l-4 shadow-sm border-slate-200 p-4 ${
-                    task.completed ? 'opacity-75 border-l-emerald-500' : isOverdue(task) ? 'border-l-red-500 bg-red-50/50' : isUrgent(task) ? 'border-l-amber-500 bg-amber-50/50' : ''
+                  className={`bg-white rounded-xl border-l-4 shadow-sm p-4 ${
+                    task.completed
+                      ? 'opacity-75 border-l-emerald-500'
+                      : isOverdue(task)
+                        ? 'border-l-red-500 bg-red-50/50'
+                        : isUrgent(task)
+                          ? 'border-l-amber-500 bg-amber-50/50'
+                          : TASK_TYPE_COLORS[task.taskType] || 'border-slate-200'
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -402,9 +486,15 @@ export default function Dashboard() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-2 text-sm">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border ${CATEGORY_COLORS[task.category] || 'bg-slate-100 text-slate-700'}`}>
-                          {getCategoryIcon(task.category)} {task.category}
-                        </span>
+                        {(task.taskType || TASK_TYPE_ANNEXE) && (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
+                            task.taskType === TASK_TYPE_QUOTIDIEN ? 'bg-red-100 text-red-800 border-red-300' :
+                            task.taskType === TASK_TYPE_SEMAINE ? 'bg-green-100 text-green-800 border-green-300' :
+                            'bg-orange-100 text-orange-800 border-orange-300'
+                          }`}>
+                            {TASK_TYPE_LABELS[task.taskType] || 'Annexe'}
+                          </span>
+                        )}
                         <span className="flex items-center gap-1">
                           <span className={`w-2 h-2 rounded-full ${PRIORITY_COLORS[task.priority] || 'bg-slate-400'}`} />
                           {task.priority}

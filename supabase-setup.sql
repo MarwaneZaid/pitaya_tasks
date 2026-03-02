@@ -10,6 +10,7 @@ create table if not exists app_storage (
 -- Permettre à tous (anon) de lire/écrire pour que les managers partagent les mêmes données
 alter table app_storage enable row level security;
 
+drop policy if exists "Allow anon read and write for app_storage" on app_storage;
 create policy "Allow anon read and write for app_storage"
   on app_storage for all
   to anon

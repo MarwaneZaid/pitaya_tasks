@@ -1,7 +1,6 @@
 import React from 'react';
 import { ChefHat } from 'lucide-react';
 import { USER_NAME_KEY } from '../config/constants';
-import logoPitaya from '../assets/logo-pitaya.png';
 
 export default function LoginScreen({ userName, setUserName, onEnter }) {
   const handleSubmit = (e) => {
@@ -13,14 +12,8 @@ export default function LoginScreen({ userName, setUserName, onEnter }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background logo Pitaya */}
-      <div
-        className="absolute inset-0 bg-center bg-no-repeat opacity-20"
-        style={{ backgroundImage: `url(${logoPitaya})`, backgroundSize: '60%' }}
-        aria-hidden
-      />
-      <div className="w-full max-w-md relative z-10">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500 text-white mb-4">

@@ -18,15 +18,29 @@ export const PRIORITY_COLORS = {
   basse: 'bg-green-500',
 };
 
+/** Type de tâche : quotidien obligatoire (rouge), annexe (orange), à faire dans la semaine (vert) */
+export const TASK_TYPE_QUOTIDIEN = 'quotidien';
+export const TASK_TYPE_ANNEXE = 'annexe';
+export const TASK_TYPE_SEMAINE = 'semaine';
+
+export const TASK_TYPE_LABELS = {
+  [TASK_TYPE_QUOTIDIEN]: 'Quotidien obligatoire',
+  [TASK_TYPE_ANNEXE]: 'Annexe',
+  [TASK_TYPE_SEMAINE]: 'À faire dans la semaine',
+};
+
+export const TASK_TYPE_COLORS = {
+  [TASK_TYPE_QUOTIDIEN]: 'border-l-red-500 bg-red-50/40',
+  [TASK_TYPE_ANNEXE]: 'border-l-orange-500 bg-orange-50/40',
+  [TASK_TYPE_SEMAINE]: 'border-l-green-500 bg-green-50/40',
+};
+
+/** Filtres affichés : uniquement les 3 catégories de tâches + Toutes */
 export const FILTER_OPTIONS = [
   { id: 'all', label: 'Toutes' },
-  { id: 'active', label: 'Actives' },
-  { id: 'completed', label: 'Terminées' },
-  { id: 'my-tasks', label: 'Mes tâches' },
-  { id: 'cuisine', label: 'Cuisine' },
-  { id: 'service', label: 'Service' },
-  { id: 'nettoyage', label: 'Nettoyage' },
-  { id: 'stock', label: 'Stock' },
+  { id: 'quotidien', label: 'Quotidien obligatoire', color: 'red' },
+  { id: 'annexe', label: 'Annexe', color: 'orange' },
+  { id: 'semaine', label: 'À faire dans la semaine', color: 'green' },
 ];
 
 export const STORAGE_KEY = 'restaurant-tasks-shared';

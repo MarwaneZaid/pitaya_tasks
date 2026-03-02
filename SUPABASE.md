@@ -1,49 +1,29 @@
 # Configurer Supabase pour Pitaya Tasks
 
-Ce guide détaille **comment récupérer l’URL et la clé anon Supabase** et **où les coller dans l’app** (icône engrenage ⚙️) pour activer la synchronisation entre tous les managers.
+Deux façons d’activer la synchronisation :
 
 ---
 
-## 1. Créer un projet Supabase (gratuit)
+## Solution recommandée : config une fois sur Vercel (puis partager le lien)
 
-1. Va sur **https://supabase.com** → connecte-toi ou crée un compte.
-2. **New project**.
-3. **Name** : ex. `pitaya-tasks`  
-   **Database Password** : choisis un mot de passe (note-le).  
-   **Region** : ex. West EU (France).
-4. **Create new project** → attends 1–2 minutes.
+Tu configures **une seule fois** sur le déploiement Vercel. Ensuite tu envoies juste le **lien** aux managers : ils ouvrent, entrent leur nom, et voient la même liste. **Aucune config à faire sur chaque téléphone ou ordinateur.**
 
----
-
-## 2. Créer la table (exécuter le SQL)
-
-1. Menu de gauche → **SQL Editor**.
-2. **New query**.
-3. Ouvre le fichier **`supabase-setup.sql`** (à la racine du projet), copie tout son contenu.
-4. Colle dans l’éditeur Supabase → **Run**.
-5. Vérifie que tu vois « Success » (aucune erreur).
+1. **Créer un projet Supabase** (gratuit) sur [supabase.com](https://supabase.com) → New project.
+2. **SQL Editor** → New query → coller le contenu de **`supabase-setup.sql`** → Run.
+3. **Project Settings** → **API** : copier **Project URL** et la clé **anon public**.
+4. Sur **Vercel** : ton projet → **Settings** → **Environment Variables**. Ajouter :
+   - **`VITE_SUPABASE_URL`** = l’URL Supabase
+   - **`VITE_SUPABASE_ANON_KEY`** = la clé anon
+5. **Redeploy** le projet. Ensuite : partager l’URL de l’app (ex. `https://pitaya-tasks.vercel.app`) aux managers. Ils n’ont rien à configurer.
 
 ---
 
-## 3. Récupérer l’URL et la clé anon
+## Alternative : configurer dans l’app (icône engrenage)
 
-1. Menu de gauche → **Project Settings** (icône engrenage ⚙️).
-2. Onglet **API**.
-3. Copie :
-   - **Project URL** (ex. `https://abcdefgh.supabase.co`)
-   - La clé **anon public** (ex. `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`) — bouton **Copy** à côté.
+Si tu ne peux pas utiliser les variables d’environnement sur Vercel, chaque personne peut configurer la sync **sur son appareil** :
 
----
+1. Créer le projet Supabase et exécuter **`supabase-setup.sql`** (étapes 1–2 ci-dessus).
+2. **Project Settings** → **API** : copier l’URL et la clé anon.
+3. Sur **chaque** téléphone/ordinateur : ouvrir l’app → icône **engrenage** → coller l’URL et la clé → **Enregistrer**.
 
-## 4. Coller dans l’app (icône engrenage ⚙️)
-
-1. Ouvre **ton app** (lien Vercel, ex. `https://pitaya-tasks-xxx.vercel.app`).
-2. Connecte-toi avec ton nom.
-3. En haut à droite, clique sur l’**icône engrenage** (⚙️).
-4. Une fenêtre **« Synchronisation équipe »** s’ouvre avec deux champs :
-   - **URL Supabase** → colle l’URL (étape 3).
-   - **Clé anon (publique)** → colle la clé anon (étape 3).
-5. Clique sur **Enregistrer**. La page recharge.
-6. Si tout est bon, le badge vert **« Sync équipe »** apparaît en haut à droite.
-
-Après ça, tous ceux qui ouvrent le même lien (téléphone ou ordinateur) voient les mêmes tâches, synchronisées en temps réel.
+Tous doivent utiliser **la même** URL et **la même** clé pour voir la même liste.
