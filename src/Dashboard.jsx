@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi } from 'lucide-react';
-import { PLANNING_NETTOYAGE, JOURS } from './config/planning';
+import { PLANNING_NETTOYAGE, JOURS, PLANNING_SEMAINE_EURALILLE, IS_PLANNING_EURALILLE } from './config/planning';
 import {
   STORAGE_KEY,
   USER_NAME_KEY,
+  SITE_NAME,
   CATEGORY_COLORS,
   PRIORITY_COLORS,
   FILTER_OPTIONS,
@@ -192,6 +193,35 @@ export default function Dashboard() {
     await saveTasks(updated);
   };
 
+  const addWeeklyTasks = async () => {
+    const existing = new Set(tasks.map((t) => t.title));
+    const toAdd = PLANNING_SEMAINE_EURALILLE.filter((t) => !existing.has(t.title));
+    if (toAdd.length === 0) {
+      alert('Les tâches de la semaine (annexes) sont déjà dans la liste.');
+      return;
+    }
+    const now = Date.now();
+    const today = getTodayDate();
+    const newTasks = toAdd.map((item, i) => ({
+      id: now + i,
+      title: item.title,
+      category: 'nettoyage',
+      priority: item.priority,
+      taskType: TASK_TYPE_ANNEXE,
+      scheduledFor: today,
+      assignedTo: '',
+      deadline: '',
+      completed: false,
+      createdAt: new Date().toISOString(),
+      createdBy: userName,
+      completedAt: null,
+      completedBy: null,
+    }));
+    const updated = [...tasks, ...newTasks];
+    setTasks(updated);
+    await saveTasks(updated);
+  };
+
   const toggleTask = (id) => {
     const updated = tasks.map((t) =>
       t.id === id
@@ -311,7 +341,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="text-xl md:text-2xl font-bold text-slate-800">Pitaya Tasks</h1>
-                <p className="text-slate-500 text-sm">Tableau partagé · PITAYA BÉTHUNE</p>
+                <p className="text-slate-500 text-sm">Tableau partagé · {SITE_NAME}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -354,7 +384,10 @@ export default function Dashboard() {
         />
 
         <div className="space-y-4">
-          <PlanningCard onAddTodayTasks={addIndispensableTasksForToday} />
+          <PlanningCard
+            onAddTodayTasks={addIndispensableTasksForToday}
+            onAddWeeklyTasks={IS_PLANNING_EURALILLE ? addWeeklyTasks : null}
+          />
 
           {/* Add task */}
           <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 md:p-6">

@@ -43,5 +43,14 @@ export const FILTER_OPTIONS = [
   { id: 'semaine', label: 'À faire dans la semaine', color: 'green' },
 ];
 
-export const STORAGE_KEY = 'restaurant-tasks-shared';
+/** Nom du site affiché partout (ex. PITAYA BÉTHUNE, PITAYA LYON). Défini par VITE_SITE_NAME en build. */
+export const SITE_NAME = typeof import.meta.env.VITE_SITE_NAME === 'string' && import.meta.env.VITE_SITE_NAME.trim()
+  ? import.meta.env.VITE_SITE_NAME.trim()
+  : 'PITAYA BÉTHUNE';
+
+/** Clé de stockage partagé (Supabase/localStorage). Une clé = une liste de tâches. Autre Pitaya = autre clé ou autre projet Supabase. */
+export const STORAGE_KEY = typeof import.meta.env.VITE_STORAGE_KEY === 'string' && import.meta.env.VITE_STORAGE_KEY.trim()
+  ? import.meta.env.VITE_STORAGE_KEY.trim()
+  : 'restaurant-tasks-shared';
+
 export const USER_NAME_KEY = 'restaurant-user-name';

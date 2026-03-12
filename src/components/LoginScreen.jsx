@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChefHat } from 'lucide-react';
-import { USER_NAME_KEY } from '../config/constants';
+import { USER_NAME_KEY, SITE_NAME } from '../config/constants';
 
 export default function LoginScreen({ userName, setUserName, onEnter }) {
   const handleSubmit = (e) => {
@@ -20,7 +20,7 @@ export default function LoginScreen({ userName, setUserName, onEnter }) {
               <ChefHat className="w-8 h-8" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">Pitaya Tasks</h1>
-            <p className="text-slate-500 text-sm mt-1">Tableau de bord partagé · PITAYA BÉTHUNE</p>
+            <p className="text-slate-500 text-sm mt-1">Tableau de bord partagé · {SITE_NAME}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
