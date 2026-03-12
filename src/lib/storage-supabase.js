@@ -15,9 +15,14 @@ function getConfig() {
 }
 
 function getSupabase() {
-  const { url, anonKey } = getConfig();
-  if (!url || !anonKey) return null;
-  return createClient(url, anonKey);
+  try {
+    const { url, anonKey } = getConfig();
+    if (!url || !anonKey) return null;
+    return createClient(url, anonKey);
+  } catch (e) {
+    console.error('Supabase init error:', e);
+    return null;
+  }
 }
 
 export function isSupabaseConfigured() {

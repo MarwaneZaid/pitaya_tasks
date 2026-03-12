@@ -6,8 +6,12 @@ import './index.css';
 import App from './App.jsx';
 
 // Données partagées : Supabase = tous les managers (téléphones inclus) ; sinon localStorage = même appareil
-if (isSupabaseConfigured()) {
-  initSupabaseStorage();
+try {
+  if (isSupabaseConfigured()) {
+    initSupabaseStorage();
+  }
+} catch (e) {
+  console.error('Storage init error:', e);
 }
 
 createRoot(document.getElementById('root')).render(
