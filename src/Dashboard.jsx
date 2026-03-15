@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi } from 'lucide-react';
-import { PLANNING_NETTOYAGE, JOURS, PLANNING_SEMAINE_EURALILLE, IS_PLANNING_EURALILLE } from './config/planning';
+import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi, Edit } from 'lucide-react';
+import { JOURS } from './config/planning';
 import {
   STORAGE_KEY,
+  PLANNING_KEY,
   USER_NAME_KEY,
-  SITE_NAME,
+  DEFAULT_SITE_NAME,
   CATEGORY_COLORS,
   PRIORITY_COLORS,
   FILTER_OPTIONS,
@@ -19,38 +20,13 @@ import { shouldShowEndOfDayReminder } from './lib/reminder';
 import { getStoredSupabaseConfig, isSupabaseConfigured, initSupabaseStorage } from './lib/storage-supabase';
 import LoginScreen from './components/LoginScreen';
 import SettingsModal from './components/SettingsModal';
+import PlanningSettings from './components/PlanningSettings';
 import StatsBar from './components/StatsBar';
 import PlanningCard from './components/PlanningCard';
+import TaskItem from './components/TaskItem';
+import { isUrgent, isOverdue, displayName } from './lib/taskUtils';
 
-function getCategoryIcon(category) {
-  switch (category) {
-    case 'cuisine': return <ChefHat className="w-4 h-4" />;
-    case 'service': return <Users className="w-4 h-4" />;
-    case 'nettoyage': return <span>🧹</span>;
-    case 'stock': return <span>📦</span>;
-    default: return null;
-  }
-}
 
-function isUrgent(task) {
-  if (!task.deadline || task.completed) return false;
-  const deadline = new Date(task.deadline);
-  const now = new Date();
-  const hours = (deadline - now) / (1000 * 60 * 60);
-  return hours <= 2 && hours > 0;
-}
-
-function isOverdue(task) {
-  if (!task.deadline || task.completed) return false;
-  return new Date(task.deadline) < new Date();
-}
-
-/** Affiche un nom lisible : si c’est une URL (ex. Supabase), affiche "Équipe" */
-function displayName(value) {
-  if (!value) return '';
-  if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) return 'Équipe';
-  return value;
-}
 
 function getTodayDate() {
   return new Date().toISOString().slice(0, 10);
@@ -76,6 +52,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPlanningSettings, setShowPlanningSettings] = useState(false);
+  const [planningConfig, setPlanningConfig] = useState(null);
   const [supabaseUrl, setSupabaseUrl] = useState('');
   const [supabaseKey, setSupabaseKey] = useState('');
 
@@ -108,13 +86,76 @@ export default function Dashboard() {
     setLoading(true);
     try {
       const result = await window.storage.get(STORAGE_KEY, true);
+      const confResult = await window.storage.get(PLANNING_KEY, true);
+      
       let list = [];
       if (result?.value) list = JSON.parse(result.value);
+      
+      let currentConfig = null;
+      let isFirstTime = false;
+      if (confResult?.value) {
+        currentConfig = JSON.parse(confResult.value);
+      } else {
+        currentConfig = {
+          siteName: '',
+          planning: {
+            lundi: [], mardi: [], mercredi: [], jeudi: [], vendredi: [], samedi: [], dimanche: []
+          },
+          annexes: []
+        };
+        await window.storage.set(PLANNING_KEY, JSON.stringify(currentConfig), true);
+        isFirstTime = true;
+      }
+      setPlanningConfig(currentConfig);
+      
+      let changedTasks = false;
       const today = getTodayDate();
       const { tasks: updated, changed } = applyAnnexeRollover(list, today);
-      if (changed) await window.storage.set(STORAGE_KEY, JSON.stringify(updated), true);
-      setTasks(changed ? updated : list);
+      if (changed) {
+        list = updated;
+        changedTasks = true;
+      }
+
+      if (!isFirstTime && currentConfig) {
+        const jour = JOURS[new Date().getDay()];
+        const tasksDuJour = currentConfig.planning?.[jour] || [];
+        if (tasksDuJour.length > 0) {
+          const existing = new Set(list.filter(t => !t.completed || t.scheduledFor === today).map((t) => t.title));
+          const toAdd = tasksDuJour.filter((t) => !existing.has(t.title));
+          
+          if (toAdd.length > 0) {
+            const now = Date.now();
+            const newTasks = toAdd.map((item, i) => ({
+              id: now + i,
+              title: item.title,
+              category: 'nettoyage',
+              priority: item.priority || 'moyenne',
+              taskType: TASK_TYPE_QUOTIDIEN,
+              scheduledFor: today,
+              assignedTo: '',
+              deadline: '',
+              completed: false,
+              createdAt: new Date().toISOString(),
+              createdBy: userName || 'Système',
+              completedAt: null,
+              completedBy: null,
+            }));
+            list = [...list, ...newTasks];
+            changedTasks = true;
+          }
+        }
+      }
+
+      if (changedTasks) {
+        await window.storage.set(STORAGE_KEY, JSON.stringify(list), true);
+      }
+      
+      setTasks(list);
       setLastUpdate(new Date());
+
+      if (isFirstTime) {
+        setShowPlanningSettings(true);
+      }
     } catch {
       setTasks([]);
     }
@@ -160,9 +201,9 @@ export default function Dashboard() {
 
   const addIndispensableTasksForToday = async () => {
     const jour = JOURS[new Date().getDay()];
-    const tasksDuJour = PLANNING_NETTOYAGE[jour] || [];
+    const tasksDuJour = planningConfig?.planning?.[jour] || [];
     if (tasksDuJour.length === 0) {
-      alert('Aucune tâche prévue pour ce jour (samedi).');
+      alert(`Aucune tâche prévue pour aujourd'hui (${jour}). Vérifiez la configuration du planning.`);
       return;
     }
     const existing = new Set(tasks.map((t) => t.title));
@@ -177,7 +218,7 @@ export default function Dashboard() {
       id: now + i,
       title: item.title,
       category: 'nettoyage',
-      priority: item.priority,
+      priority: item.priority || 'moyenne',
       taskType: TASK_TYPE_QUOTIDIEN,
       scheduledFor: today,
       assignedTo: '',
@@ -194,10 +235,15 @@ export default function Dashboard() {
   };
 
   const addWeeklyTasks = async () => {
+    const toAddTemplate = planningConfig?.annexes || [];
+    if (toAddTemplate.length === 0) {
+      alert("Aucune tâche annexe n'est configurée pour ce restaurant.");
+      return;
+    }
     const existing = new Set(tasks.map((t) => t.title));
-    const toAdd = PLANNING_SEMAINE_EURALILLE.filter((t) => !existing.has(t.title));
+    const toAdd = toAddTemplate.filter((t) => !existing.has(t.title));
     if (toAdd.length === 0) {
-      alert('Les tâches de la semaine (annexes) sont déjà dans la liste.');
+      alert('Toutes les tâches hebdomadaires sont déjà dans la liste.');
       return;
     }
     const now = Date.now();
@@ -206,7 +252,7 @@ export default function Dashboard() {
       id: now + i,
       title: item.title,
       category: 'nettoyage',
-      priority: item.priority,
+      priority: item.priority || 'moyenne',
       taskType: TASK_TYPE_ANNEXE,
       scheduledFor: today,
       assignedTo: '',
@@ -340,8 +386,8 @@ export default function Dashboard() {
                 <ChefHat className="w-7 h-7" />
               </div>
               <div>
-                <h1 className="text-xl md:text-2xl font-bold text-slate-800">Pitaya Tasks</h1>
-                <p className="text-slate-500 text-sm">Tableau partagé · {SITE_NAME}</p>
+                <h1 className="text-xl md:text-2xl font-bold text-slate-800">DailyDo</h1>
+                <p className="text-slate-500 text-sm">Tableau partagé · {planningConfig?.siteName || DEFAULT_SITE_NAME}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -357,6 +403,9 @@ export default function Dashboard() {
                 title="Actualiser"
               >
                 <RefreshCw className="w-5 h-5" />
+              </button>
+              <button onClick={() => setShowPlanningSettings(true)} className="p-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100" title="Configurer le planning et le site">
+                <Edit className="w-5 h-5" />
               </button>
               <button onClick={openSettings} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Synchronisation">
                 <Settings className="w-5 h-5" />
@@ -383,10 +432,20 @@ export default function Dashboard() {
           setSupabaseKey={setSupabaseKey}
         />
 
+        <PlanningSettings
+          isOpen={showPlanningSettings}
+          onClose={() => setShowPlanningSettings(false)}
+          onSave={(newConf) => {
+            setPlanningConfig(newConf);
+            loadTasks();
+          }}
+        />
+
         <div className="space-y-4">
           <PlanningCard
-            onAddTodayTasks={addIndispensableTasksForToday}
-            onAddWeeklyTasks={IS_PLANNING_EURALILLE ? addWeeklyTasks : null}
+            onAddWeeklyTasks={addWeeklyTasks}
+            planningConfig={planningConfig}
+            siteName={planningConfig?.siteName || DEFAULT_SITE_NAME}
           />
 
           {/* Add task */}
@@ -482,78 +541,12 @@ export default function Dashboard() {
           ) : (
             <ul className="space-y-3">
               {sorted.map((task) => (
-                <li
+                <TaskItem
                   key={task.id}
-                  className={`bg-white rounded-xl border-l-4 shadow-sm p-4 ${
-                    task.completed
-                      ? 'opacity-75 border-l-emerald-500'
-                      : isOverdue(task)
-                        ? 'border-l-red-500 bg-red-50/50'
-                        : isUrgent(task)
-                          ? 'border-l-amber-500 bg-amber-50/50'
-                          : TASK_TYPE_COLORS[task.taskType] || 'border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <button onClick={() => toggleTask(task.id)} className="mt-0.5 shrink-0">
-                      {task.completed ? (
-                        <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                      ) : (
-                        <Circle className="w-6 h-6 text-slate-300 hover:text-amber-500" />
-                      )}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className={`font-medium ${task.completed ? 'line-through text-slate-500' : 'text-slate-800'}`}>
-                          {task.title}
-                        </span>
-                        {isOverdue(task) && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
-                            <AlertCircle className="w-3 h-3" /> En retard
-                          </span>
-                        )}
-                        {isUrgent(task) && !task.completed && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500 text-white text-xs rounded-full">
-                            <Clock className="w-3 h-3" /> Urgent
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2 text-sm">
-                        {(task.taskType || TASK_TYPE_ANNEXE) && (
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border ${
-                            task.taskType === TASK_TYPE_QUOTIDIEN ? 'bg-red-100 text-red-800 border-red-300' :
-                            task.taskType === TASK_TYPE_SEMAINE ? 'bg-green-100 text-green-800 border-green-300' :
-                            'bg-orange-100 text-orange-800 border-orange-300'
-                          }`}>
-                            {TASK_TYPE_LABELS[task.taskType] || 'Annexe'}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <span className={`w-2 h-2 rounded-full ${PRIORITY_COLORS[task.priority] || 'bg-slate-400'}`} />
-                          {task.priority}
-                        </span>
-                        {task.assignedTo && (
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{task.assignedTo}</span>
-                        )}
-                        {task.deadline && (
-                          <span className="text-slate-500">
-                            <Clock className="w-3.5 h-3.5 inline mr-0.5" />
-                            {new Date(task.deadline).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Créée par {displayName(task.createdBy)} · {task.completed && task.completedBy && `Terminée par ${displayName(task.completedBy)}`}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => deleteTask(task.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg shrink-0"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </li>
+                  task={task}
+                  toggleTask={toggleTask}
+                  deleteTask={deleteTask}
+                />
               ))}
             </ul>
           )}
