@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Save, X } from 'lucide-react';
 import { JOURS } from '../config/planning';
-import { TASK_TYPE_QUOTIDIEN, TASK_TYPE_SEMAINE, TASK_TYPE_ANNEXE, PLANNING_KEY, STORAGE_KEY } from '../config/constants';
+import { TASK_TYPE_QUOTIDIEN, TASK_TYPE_SEMAINE, TASK_TYPE_ANNEXE } from '../config/constants';
+import { getPlanningConfig, savePlanningConfig } from '../lib/db';
 
 const DEFAULT_PLANNING = {
   siteName: 'Mon Restaurant',
@@ -25,9 +26,9 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const result = await window.storage.get(PLANNING_KEY, true);
-      if (result?.value) {
-        setConfig(JSON.parse(result.value));
+      const result = await getPlanningConfig();
+      if (result) {
+        setConfig(result);
       } else {
         setConfig(DEFAULT_PLANNING);
       }
@@ -39,7 +40,7 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
 
   const handleSave = async () => {
     try {
-      await window.storage.set(PLANNING_KEY, JSON.stringify(config), true);
+      await savePlanningConfig(config);
       onSave(config);
       onClose();
     } catch (e) {
