@@ -1,26 +1,42 @@
 import React, { useState } from 'react';
-import { ChefHat, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react';
+import { ChefHat, Store, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
-import { DEFAULT_SITE_NAME } from '../config/constants';
+import { createRestaurant } from '../lib/db';
+
+const AUTH_DOMAIN = 'restaurant.dailydo.app';
+
+function emailFromRestaurantName(name) {
+  const slug = name
+    .toLowerCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '') || 'restaurant';
+  return `${slug}@${AUTH_DOMAIN}`;
+}
 
 export default function LoginScreen({ onEnter }) {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
+  const [restaurantName, setRestaurantName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password) return;
-    
+    const name = restaurantName.trim();
+    if (!name || !password) return;
+
     setLoading(true);
     setError(null);
 
     try {
       if (!supabase) {
-        throw new Error("Supabase n'est pas configuré. Veuillez vérifier les variables d'environnement.");
+        throw new Error("Supabase n'est pas configuré. Vérifiez les variables d'environnement.");
       }
+
+      const email = emailFromRestaurantName(name);
 
       if (isLogin) {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -33,13 +49,17 @@ export default function LoginScreen({ onEnter }) {
           email,
           password,
         });
-        if (signUpError) throw signUpError;
-        
-        // Optionnel : si on veut autologin ou afficher un message de vérification email
-        alert("Compte créé ! (S'il y a une confirmation par email activée, veuillez vérifier vos mails)");
+        if (signUpError) {
+          if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
+            setError('Un restaurant avec ce nom existe déjà. Connectez-vous avec votre mot de passe.');
+            return;
+          }
+          throw signUpError;
+        }
+        await createRestaurant(name);
       }
-      
-      onEnter(); // Recharger ou notifier Dashboard que l'utilisateur est connecté
+
+      onEnter();
     } catch (err) {
       console.error(err);
       setError(err.message || "Une erreur est survenue");
@@ -57,7 +77,7 @@ export default function LoginScreen({ onEnter }) {
               <ChefHat className="w-8 h-8" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">DailyDo</h1>
-            <p className="text-slate-500 text-sm mt-1">Tableau de bord partagé · {DEFAULT_SITE_NAME}</p>
+            <p className="text-slate-500 text-sm mt-1">Tableau de bord partagé</p>
           </div>
 
           {error && (
@@ -69,16 +89,17 @@ export default function LoginScreen({ onEnter }) {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Adresse Email</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Nom du restaurant</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Store className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="nom@restaurant.fr"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Ex: Pitaya Lyon"
+                  value={restaurantName}
+                  onChange={(e) => setRestaurantName(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-slate-800"
+                  autoComplete="organization"
                 />
               </div>
             </div>
@@ -94,25 +115,33 @@ export default function LoginScreen({ onEnter }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-slate-800"
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={loading || !email || !password}
+              disabled={loading || !restaurantName.trim() || !password}
               className="w-full py-3 px-4 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
             >
-              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : isLogin ? "Se connecter" : "Créer mon compte"}
+              {loading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : isLogin ? (
+                'Se connecter'
+              ) : (
+                "Créer mon espace"
+              )}
             </button>
           </form>
 
           <div className="mt-6 text-center">
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              type="button"
+              onClick={() => { setIsLogin(!isLogin); setError(null); }}
               className="text-sm text-slate-500 hover:text-amber-600 font-medium"
             >
-              {isLogin ? "Nouveau restaurant ? S'inscrire" : "Déjà un compte ? Se connecter"}
+              {isLogin ? "Nouveau restaurant ? Créer mon espace" : "Déjà un espace ? Se connecter"}
             </button>
           </div>
 

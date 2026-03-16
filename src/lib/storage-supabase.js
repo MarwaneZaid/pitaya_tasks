@@ -18,7 +18,7 @@ export function getSupabase() {
   if (supabase) return supabase;
   try {
     const { url, anonKey } = getConfig();
-    if (!url || !anonKey) return null;
+    if (!url || !anonKey || anonKey.startsWith('REMPLACER')) return null;
     supabase = createClient(url, anonKey);
     return supabase;
   } catch (e) {
@@ -30,7 +30,7 @@ export function getSupabase() {
 
 export function isSupabaseConfigured() {
   const { url, anonKey } = getConfig();
-  return !!(url && anonKey);
+  return !!(url && anonKey && !String(anonKey).startsWith('REMPLACER'));
 }
 
 
