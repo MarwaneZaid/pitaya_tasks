@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi, Edit } from 'lucide-react';
 import { JOURS } from './config/planning';
 import {
@@ -17,10 +17,12 @@ import {
 } from './config/constants';
 import { applyAnnexeRollover } from './lib/taskRollover';
 import { shouldShowEndOfDayReminder } from './lib/reminder';
-import { getStoredSupabaseConfig, isSupabaseConfigured, initSupabaseStorage } from './lib/storage-supabase';
+import { isSupabaseConfigured, supabase } from './lib/storage-supabase';
+import { getUserRestaurant, getTasks, saveTask, deleteTask, getPlanningConfig, savePlanningConfig } from './lib/db';
 import LoginScreen from './components/LoginScreen';
-import SettingsModal from './components/SettingsModal';
+import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
+import TeamModal from './components/TeamModal';
 import StatsBar from './components/StatsBar';
 import PlanningCard from './components/PlanningCard';
 import TaskItem from './components/TaskItem';
@@ -51,20 +53,83 @@ export default function Dashboard() {
   const [isNameSet, setIsNameSet] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showPlanningSettings, setShowPlanningSettings] = useState(false);
   const [planningConfig, setPlanningConfig] = useState(null);
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseKey, setSupabaseKey] = useState('');
+  const [showPlanningSettings, setShowPlanningSettings] = useState(false);
+  const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [showTeam, setShowTeam] = useState(false);
+  const realtimeChannelRef = useRef(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(USER_NAME_KEY);
-    if (saved) {
-      setUserName(saved);
-      setIsNameSet(true);
+    const checkSession = async () => {
+      if (supabase) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setUserName(session.user.email);
+          const resto = await getUserRestaurant();
+          if (!resto) {
+            setNeedsOnboarding(true);
+            setIsNameSet(true);
+            setLoading(false);
+            return;
+          } else {
+            setNeedsOnboarding(false);
+            setIsNameSet(true);
+            loadTasks();
+            return;
+          }
+        }
+      }
+      setIsNameSet(false);
+      setLoading(false);
+    };
+    checkSession();
+
+    if (supabase) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session) {
+          setUserName(session.user.email);
+          const resto = await getUserRestaurant();
+          if (!resto) {
+            setNeedsOnboarding(true);
+          } else {
+            setNeedsOnboarding(false);
+            loadTasks();
+            setupRealtimeSync(resto.id);
+          }
+          setIsNameSet(true);
+        } else {
+          setIsNameSet(false);
+          setUserName('');
+          setNeedsOnboarding(false);
+          if (realtimeChannelRef.current) {
+            supabase.removeChannel(realtimeChannelRef.current);
+            realtimeChannelRef.current = null;
+          }
+        }
+      });
+      return () => {
+        subscription?.unsubscribe();
+        if (realtimeChannelRef.current) supabase.removeChannel(realtimeChannelRef.current);
+      };
     }
-    loadTasks();
   }, []);
+
+  const setupRealtimeSync = (restaurantId) => {
+    if (!supabase || realtimeChannelRef.current) return;
+    const channel = supabase
+      .channel(`tasks:${restaurantId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'tasks',
+        filter: `restaurant_id=eq.${restaurantId}`,
+      }, () => {
+        // Recharger les tâches silencieusement
+        loadTasks();
+      })
+      .subscribe();
+    realtimeChannelRef.current = channel;
+  };
 
   useEffect(() => {
     const completed = tasks.filter((t) => t.completed).length;
@@ -85,35 +150,23 @@ export default function Dashboard() {
   const loadTasks = async () => {
     setLoading(true);
     try {
-      const result = await window.storage.get(STORAGE_KEY, true);
-      const confResult = await window.storage.get(PLANNING_KEY, true);
-      
-      let list = [];
-      if (result?.value) list = JSON.parse(result.value);
-      
-      let currentConfig = null;
-      let isFirstTime = false;
-      if (confResult?.value) {
-        currentConfig = JSON.parse(confResult.value);
-      } else {
-        currentConfig = {
-          siteName: '',
-          planning: {
-            lundi: [], mardi: [], mercredi: [], jeudi: [], vendredi: [], samedi: [], dimanche: []
-          },
-          annexes: []
-        };
-        await window.storage.set(PLANNING_KEY, JSON.stringify(currentConfig), true);
-        isFirstTime = true;
+      const currentConfig = await !!supabase ? await getPlanningConfig() : null;
+      if (!currentConfig) {
+        setTasks([]);
+        return;
       }
-      setPlanningConfig(currentConfig);
       
+      const dbTasks = await getTasks();
+      let list = dbTasks || [];
+      let isFirstTime = (!currentConfig.siteName && currentConfig.planning.lundi.length === 0);
+      setPlanningConfig(currentConfig);
+
       let changedTasks = false;
       const today = getTodayDate();
       const { tasks: updated, changed } = applyAnnexeRollover(list, today);
       if (changed) {
         list = updated;
-        changedTasks = true;
+        for (const t of list) await saveTask(t);
       }
 
       if (!isFirstTime && currentConfig) {
@@ -124,9 +177,7 @@ export default function Dashboard() {
           const toAdd = tasksDuJour.filter((t) => !existing.has(t.title));
           
           if (toAdd.length > 0) {
-            const now = Date.now();
-            const newTasks = toAdd.map((item, i) => ({
-              id: now + i,
+            const newTasks = toAdd.map((item) => ({
               title: item.title,
               category: 'nettoyage',
               priority: item.priority || 'moyenne',
@@ -135,103 +186,57 @@ export default function Dashboard() {
               assignedTo: '',
               deadline: '',
               completed: false,
-              createdAt: new Date().toISOString(),
               createdBy: userName || 'Système',
-              completedAt: null,
-              completedBy: null,
             }));
-            list = [...list, ...newTasks];
-            changedTasks = true;
+            
+            for(const t of newTasks) {
+               const saved = await saveTask(t);
+               list.push(saved);
+            }
           }
         }
       }
 
-      if (changedTasks) {
-        await window.storage.set(STORAGE_KEY, JSON.stringify(list), true);
-      }
-      
-      setTasks(list);
+      setTasks([...list]);
       setLastUpdate(new Date());
 
       if (isFirstTime) {
         setShowPlanningSettings(true);
       }
-    } catch {
-      setTasks([]);
-    }
-    setLoading(false);
-  };
-
-  const saveTasks = async (updated) => {
-    try {
-      await window.storage.set(STORAGE_KEY, JSON.stringify(updated), true);
-      setLastUpdate(new Date());
     } catch (e) {
       console.error(e);
-      alert('Erreur lors de la sauvegarde.');
+      setTasks([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!newTask.title.trim()) return;
     const today = getTodayDate();
     const task = {
-      id: Date.now(),
       ...newTask,
       scheduledFor: newTask.scheduledFor || today,
       completed: false,
-      createdAt: new Date().toISOString(),
       createdBy: userName,
-      completedAt: null,
-      completedBy: null,
     };
-    const updated = [...tasks, task];
-    setTasks(updated);
-    saveTasks(updated);
-    setNewTask({
-      title: '',
-      category: 'cuisine',
-      priority: 'moyenne',
-      taskType: TASK_TYPE_ANNEXE,
-      assignedTo: '',
-      deadline: '',
-      scheduledFor: '',
-    });
-  };
-
-  const addIndispensableTasksForToday = async () => {
-    const jour = JOURS[new Date().getDay()];
-    const tasksDuJour = planningConfig?.planning?.[jour] || [];
-    if (tasksDuJour.length === 0) {
-      alert(`Aucune tâche prévue pour aujourd'hui (${jour}). Vérifiez la configuration du planning.`);
-      return;
+    
+    try {
+      const savedTask = await saveTask(task);
+      setTasks((prev) => [...prev, savedTask]);
+      setNewTask({
+        title: '',
+        category: 'cuisine',
+        priority: 'moyenne',
+        taskType: TASK_TYPE_ANNEXE,
+        assignedTo: '',
+        deadline: '',
+        scheduledFor: '',
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l'ajout.");
     }
-    const existing = new Set(tasks.map((t) => t.title));
-    const toAdd = tasksDuJour.filter((t) => !existing.has(t.title));
-    if (toAdd.length === 0) {
-      alert('Les tâches du jour sont déjà dans la liste.');
-      return;
-    }
-    const now = Date.now();
-    const today = getTodayDate();
-    const newTasks = toAdd.map((item, i) => ({
-      id: now + i,
-      title: item.title,
-      category: 'nettoyage',
-      priority: item.priority || 'moyenne',
-      taskType: TASK_TYPE_QUOTIDIEN,
-      scheduledFor: today,
-      assignedTo: '',
-      deadline: '',
-      completed: false,
-      createdAt: new Date().toISOString(),
-      createdBy: userName,
-      completedAt: null,
-      completedBy: null,
-    }));
-    const updated = [...tasks, ...newTasks];
-    setTasks(updated);
-    await saveTasks(updated);
   };
 
   const addWeeklyTasks = async () => {
@@ -246,10 +251,9 @@ export default function Dashboard() {
       alert('Toutes les tâches hebdomadaires sont déjà dans la liste.');
       return;
     }
-    const now = Date.now();
+    
     const today = getTodayDate();
-    const newTasks = toAdd.map((item, i) => ({
-      id: now + i,
+    const newTasks = toAdd.map((item) => ({
       title: item.title,
       category: 'nettoyage',
       priority: item.priority || 'moyenne',
@@ -258,48 +262,68 @@ export default function Dashboard() {
       assignedTo: '',
       deadline: '',
       completed: false,
-      createdAt: new Date().toISOString(),
       createdBy: userName,
-      completedAt: null,
-      completedBy: null,
     }));
-    const updated = [...tasks, ...newTasks];
-    setTasks(updated);
-    await saveTasks(updated);
+    
+    try {
+      const added = [];
+      for (const t of newTasks) {
+         added.push(await saveTask(t));
+      }
+      setTasks((prev) => [...prev, ...added]);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const toggleTask = (id) => {
-    const updated = tasks.map((t) =>
-      t.id === id
-        ? {
-            ...t,
-            completed: !t.completed,
-            completedAt: !t.completed ? new Date().toISOString() : null,
-            completedBy: !t.completed ? userName : null,
-          }
-        : t
-    );
-    setTasks(updated);
-    saveTasks(updated);
+  const toggleTask = async (id) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    
+    const toggled = {
+      ...task,
+      completed: !task.completed,
+      completedAt: !task.completed ? new Date().toISOString() : null,
+      completedBy: !task.completed ? userName : null,
+    };
+    
+    // Optistic UI update
+    setTasks(tasks.map((t) => t.id === id ? toggled : t));
+    
+    try {
+      await saveTask(toggled);
+    } catch(e) {
+      console.error(e);
+      // rollback
+      setTasks(tasks);
+    }
   };
 
-  const deleteTask = (id) => {
-    const updated = tasks.filter((t) => t.id !== id);
-    setTasks(updated);
-    saveTasks(updated);
+  const deleteTaskAction = async (id) => {
+    // Optimistic UI update
+    setTasks(tasks.filter((t) => t.id !== id));
+    try {
+      await deleteTask(id);
+    } catch(e) {
+      console.error(e);
+      setTasks(tasks); // rollback
+    }
   };
 
-  const clearCompleted = () => {
-    const updated = tasks.filter((t) => !t.completed);
-    setTasks(updated);
-    saveTasks(updated);
+  const clearCompleted = async () => {
+    const completedTasks = tasks.filter((t) => t.completed);
+    setTasks(tasks.filter((t) => !t.completed));
+    for (const t of completedTasks) {
+      await deleteTask(t.id);
+    }
   };
 
-  const resetAll = () => {
-    if (!confirm('Supprimer toutes les tâches pour tous les managers ?')) return;
+  const resetAll = async () => {
+    if (!confirm('Voulez-vous vraiment supprimer TOUTES les tâches de la liste ?')) return;
     setTasks([]);
-    window.storage.delete(STORAGE_KEY, true);
-    setLastUpdate(new Date());
+    for (const t of tasks) {
+      await deleteTask(t.id);
+    }
   };
 
   const getFilteredTasks = () => {
@@ -314,21 +338,18 @@ export default function Dashboard() {
     }
   };
 
-  const openSettings = () => {
-    const c = getStoredSupabaseConfig();
-    setSupabaseUrl(c.url);
-    setSupabaseKey(c.anonKey);
-    setShowSettings(true);
-  };
+
 
   if (!isNameSet) {
+    return <LoginScreen onEnter={() => setIsNameSet(true)} />;
+  }
+
+  if (needsOnboarding) {
     return (
-      <LoginScreen
-        userName={userName}
-        setUserName={setUserName}
-        onEnter={() => {
-          setUserName(localStorage.getItem(USER_NAME_KEY) || '');
-          setIsNameSet(true);
+      <Onboarding
+        onComplete={() => {
+          setNeedsOnboarding(false);
+          loadTasks();
         }}
       />
     );
@@ -404,11 +425,23 @@ export default function Dashboard() {
               >
                 <RefreshCw className="w-5 h-5" />
               </button>
+              <button
+                onClick={async () => {
+                  if (supabase) {
+                    await supabase.auth.signOut();
+                  } else {
+                    localStorage.removeItem(USER_NAME_KEY);
+                    setIsNameSet(false);
+                    setUserName('');
+                  }
+                }}
+                className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 mr-1"
+                title="Déconnexion"
+              >
+                <Users className="w-5 h-5" />
+              </button>
               <button onClick={() => setShowPlanningSettings(true)} className="p-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100" title="Configurer le planning et le site">
                 <Edit className="w-5 h-5" />
-              </button>
-              <button onClick={openSettings} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Synchronisation">
-                <Settings className="w-5 h-5" />
               </button>
               <button onClick={resetAll} className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
                 Réinitialiser
@@ -423,19 +456,11 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <SettingsModal
-          isOpen={showSettings}
-          onClose={() => setShowSettings(false)}
-          supabaseUrl={supabaseUrl}
-          setSupabaseUrl={setSupabaseUrl}
-          supabaseKey={supabaseKey}
-          setSupabaseKey={setSupabaseKey}
-        />
-
         <PlanningSettings
           isOpen={showPlanningSettings}
           onClose={() => setShowPlanningSettings(false)}
-          onSave={(newConf) => {
+          onSave={async (newConf) => {
+            await savePlanningConfig(newConf);
             setPlanningConfig(newConf);
             loadTasks();
           }}
@@ -545,7 +570,7 @@ export default function Dashboard() {
                   key={task.id}
                   task={task}
                   toggleTask={toggleTask}
-                  deleteTask={deleteTask}
+                  deleteTask={deleteTaskAction}
                 />
               ))}
             </ul>
