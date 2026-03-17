@@ -1,12 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChefHat, Loader2, Store } from 'lucide-react';
 import { createRestaurant } from '../lib/db';
+import { getSupabase } from '../lib/storage-supabase';
 import { DEFAULT_SITE_NAME } from '../config/constants';
 
 export default function Onboarding({ onComplete }) {
   const [restoName, setRestoName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Réchauffer la connexion Supabase dès l’affichage pour accélérer la création
+  useEffect(() => {
+    const client = getSupabase();
+    if (client) client.auth.getSession().catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -79,6 +86,9 @@ export default function Onboarding({ onComplete }) {
                 "Créer mon espace"
               )}
             </button>
+            {loading && (
+              <p className="text-center text-sm text-slate-500">Cela peut prendre 10 à 15 secondes.</p>
+            )}
           </form>
         </div>
       </div>

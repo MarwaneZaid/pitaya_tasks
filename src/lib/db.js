@@ -25,7 +25,7 @@ export async function getUserRestaurant() {
   };
 }
 
-const RPC_TIMEOUT_MS = 15000;
+const RPC_TIMEOUT_MS = 12000;
 
 export async function createRestaurant(name) {
   const client = getClient();
