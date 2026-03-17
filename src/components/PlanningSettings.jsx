@@ -181,7 +181,7 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
                     />
                   </div>
                   <div className="p-4 bg-amber-50 text-amber-800 rounded-xl text-sm leading-relaxed border border-amber-200">
-                    <p><strong>Remarque :</strong> Configurez ici les tâches qui s'ajouteront automatiquement lorsque vos équipes cliqueront sur "Ajouter les tâches du jour".</p>
+                    <p><strong>Remarque :</strong> Les tâches du jour (par jour de la semaine) s'affichent et s'ajoutent automatiquement au tableau de bord à chaque ouverture — aucun clic nécessaire.</p>
                   </div>
                 </div>
               ) : activeTab === 'annexes' ? (
