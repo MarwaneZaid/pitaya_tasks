@@ -111,18 +111,20 @@ export default function LoginScreen({ onEnter }) {
                 <input
                   type="password"
                   required
-                  placeholder="••••••••"
+                  minLength={4}
+                  placeholder="4 caractères min"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-slate-800"
                   autoComplete={isLogin ? 'current-password' : 'new-password'}
                 />
               </div>
+              <p className="mt-1 text-xs text-slate-500">4 caractères minimum</p>
             </div>
 
             <button
               type="submit"
-              disabled={loading || !restaurantName.trim() || !password}
+              disabled={loading || !restaurantName.trim() || password.length < 4}
               className="w-full py-3 px-4 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
             >
               {loading ? (
