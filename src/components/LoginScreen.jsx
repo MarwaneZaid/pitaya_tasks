@@ -5,16 +5,20 @@ import { createRestaurant } from '../lib/db';
 
 // Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
 const AUTH_DOMAIN = 'dailydo.app';
+const AUTH_DOMAIN_LEGACY = 'restaurant.dailydo.app';
 
-function emailFromRestaurantName(name) {
-  const slug = name
+function slugFromRestaurantName(name) {
+  return name
     .toLowerCase()
     .trim()
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-]/g, '') || 'restaurant';
-  return `${slug}@${AUTH_DOMAIN}`;
+}
+
+function emailFromRestaurantName(name, domain = AUTH_DOMAIN) {
+  return `${slugFromRestaurantName(name)}@${domain}`;
 }
 
 export default function LoginScreen({ onEnter }) {
@@ -40,10 +44,11 @@ export default function LoginScreen({ onEnter }) {
       const email = emailFromRestaurantName(name);
 
       if (isLogin) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        let signInError = (await supabase.auth.signInWithPassword({ email, password })).error;
+        if (signInError?.message?.includes('Invalid login credentials')) {
+          const emailLegacy = emailFromRestaurantName(name, AUTH_DOMAIN_LEGACY);
+          signInError = (await supabase.auth.signInWithPassword({ email: emailLegacy, password })).error;
+        }
         if (signInError) throw signInError;
       } else {
         const { error: signUpError } = await supabase.auth.signUp({
