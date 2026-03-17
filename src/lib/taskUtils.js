@@ -14,6 +14,11 @@ export function isOverdue(task) {
 /** Affiche un nom lisible : si c’est une URL (ex. Supabase), affiche "Équipe" */
 export function displayName(value) {
   if (!value) return '';
-  if (typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'))) return 'Équipe';
-  return value;
+  const s = String(value).trim();
+  if (s.startsWith('http://') || s.startsWith('https://')) return 'Équipe';
+  if (s.includes('@') && (s.endsWith('@dailydo.app') || s.endsWith('@restaurant.dailydo.app'))) {
+    const local = s.slice(0, s.indexOf('@')).replace(/-/g, ' ');
+    return local ? local.charAt(0).toUpperCase() + local.slice(1) : s;
+  }
+  return s;
 }

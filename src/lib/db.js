@@ -1,10 +1,16 @@
-import { supabase } from './storage-supabase';
+import { supabase, getSupabase } from './storage-supabase';
+
+function getClient() {
+  return getSupabase() || supabase;
+}
 
 export async function getUserRestaurant() {
-  const { data: { session } } = await supabase.auth.getSession();
+  const client = getClient();
+  if (!client) return null;
+  const { data: { session } } = await client.auth.getSession();
   if (!session) return null;
 
-  const { data: role, error } = await supabase
+  const { data: role, error } = await client
     .from('user_roles')
     .select('restaurant_id, role, restaurants(name)')
     .eq('user_id', session.user.id)
@@ -22,10 +28,12 @@ export async function getUserRestaurant() {
 const RPC_TIMEOUT_MS = 15000;
 
 export async function createRestaurant(name) {
-  const { data: { session } } = await supabase.auth.getSession();
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+  const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error("Non authentifié");
 
-  const rpcPromise = supabase.rpc('create_restaurant', { p_name: name });
+  const rpcPromise = client.rpc('create_restaurant', { p_name: name });
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error("Délai dépassé. Vérifiez votre connexion ou exécutez le script SQL create_restaurant dans Supabase.")), RPC_TIMEOUT_MS)
   );
@@ -47,8 +55,10 @@ export async function createRestaurant(name) {
 export async function getPlanningConfig() {
   const resto = await getUserRestaurant();
   if (!resto) return null;
+  const client = getClient();
+  if (!client) return null;
 
-  const { data: templates } = await supabase
+  const { data: templates } = await client
     .from('planning_templates')
     .select('day_of_week, tasks')
     .eq('restaurant_id', resto.id);
@@ -79,8 +89,10 @@ export async function savePlanningConfig(config) {
   if (!resto) throw new Error("Aucun restaurant trouvé");
 
   // On sauvegarde le nom du restaurant
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
   if (config.siteName && config.siteName !== resto.name) {
-    await supabase.from('restaurants').update({ name: config.siteName }).eq('id', resto.id);
+    await client.from('restaurants').update({ name: config.siteName }).eq('id', resto.id);
   }
 
   const upserts = [];
@@ -101,7 +113,7 @@ export async function savePlanningConfig(config) {
     tasks: config.annexes || []
   });
 
-  const { error } = await supabase
+  const { error } = await client
     .from('planning_templates')
     .upsert(upserts, { onConflict: 'restaurant_id, day_of_week' });
 
@@ -111,8 +123,10 @@ export async function savePlanningConfig(config) {
 export async function getTasks(dateFilter = null) {
   const resto = await getUserRestaurant();
   if (!resto) return [];
+  const client = getClient();
+  if (!client) return [];
 
-  let query = supabase
+  let query = client
     .from('tasks')
     .select('*')
     .eq('restaurant_id', resto.id)
@@ -148,6 +162,8 @@ export async function getTasks(dateFilter = null) {
 export async function saveTask(task) {
   const resto = await getUserRestaurant();
   if (!resto) return null;
+  const client = getClient();
+  if (!client) return null;
 
   const dbTask = {
     restaurant_id: resto.id,
@@ -169,7 +185,7 @@ export async function saveTask(task) {
     dbTask.id = task.id;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('tasks')
     .upsert([dbTask], { onConflict: 'id' })
     .select()
@@ -191,7 +207,9 @@ export async function saveTasks(tasksArray) {
 
 export async function deleteTask(taskId) {
   if (typeof taskId !== 'string') return;
-  await supabase.from('tasks').delete().eq('id', taskId);
+  const client = getClient();
+  if (!client) return;
+  await client.from('tasks').delete().eq('id', taskId);
 }
 
 /**
@@ -201,8 +219,10 @@ export async function deleteTask(taskId) {
 export async function getTeamMembers() {
   const resto = await getUserRestaurant();
   if (!resto) return [];
+  const client = getClient();
+  if (!client) return [];
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('user_roles')
     .select('user_id, role')
     .eq('restaurant_id', resto.id);
@@ -223,11 +243,13 @@ export async function getInviteCode() {
 }
 
 export async function joinRestaurantByCode(code) {
-  const { data: { session } } = await supabase.auth.getSession();
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+  const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error('Non authentifié');
 
   // Chercher le restaurant dont l'ID commence par ce code
-  const { data: restos, error } = await supabase
+  const { data: restos, error } = await client
     .from('restaurants')
     .select('id, name')
     .ilike('id', `${code.toLowerCase()}%`);
@@ -239,7 +261,7 @@ export async function joinRestaurantByCode(code) {
   const resto = restos[0];
 
   // Vérifier si déjà membre
-  const { data: existing } = await supabase
+  const { data: existing } = await client
     .from('user_roles')
     .select('id')
     .eq('user_id', session.user.id)
@@ -248,7 +270,7 @@ export async function joinRestaurantByCode(code) {
   if (existing) throw new Error("Vous êtes déjà membre d'un restaurant.");
 
   // Rejoindre comme employé
-  const { error: joinError } = await supabase
+  const { error: joinError } = await client
     .from('user_roles')
     .insert({
       user_id: session.user.id,

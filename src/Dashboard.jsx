@@ -2,18 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle, RefreshCw, Settings, Wifi, Edit } from 'lucide-react';
 import { JOURS } from './config/planning';
 import {
-  STORAGE_KEY,
-  PLANNING_KEY,
   USER_NAME_KEY,
   DEFAULT_SITE_NAME,
-  CATEGORY_COLORS,
-  PRIORITY_COLORS,
   FILTER_OPTIONS,
   TASK_TYPE_QUOTIDIEN,
   TASK_TYPE_ANNEXE,
   TASK_TYPE_SEMAINE,
-  TASK_TYPE_LABELS,
-  TASK_TYPE_COLORS,
 } from './config/constants';
 import { applyAnnexeRollover } from './lib/taskRollover';
 import { shouldShowEndOfDayReminder } from './lib/reminder';
@@ -150,7 +144,7 @@ export default function Dashboard() {
   const loadTasks = async () => {
     setLoading(true);
     try {
-      const currentConfig = await !!supabase ? await getPlanningConfig() : null;
+      const currentConfig = supabase ? await getPlanningConfig() : null;
       if (!currentConfig) {
         setTasks([]);
         return;
@@ -391,7 +385,7 @@ export default function Dashboard() {
               <strong>Liste locale uniquement.</strong> Les tâches ne sont pas synchronisées avec les autres (téléphones, autres noms). Pour voir la même liste partout, configurez la synchronisation dans les Réglages (icône engrenage).
             </span>
             <button
-              onClick={openSettings}
+              onClick={() => setShowPlanningSettings(true)}
               className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
             >
               Configurer la sync

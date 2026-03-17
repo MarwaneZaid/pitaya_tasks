@@ -8,7 +8,7 @@ import {
   FILTER_OPTIONS,
   STORAGE_KEY,
   USER_NAME_KEY,
-  SITE_NAME,
+  DEFAULT_SITE_NAME,
 } from './constants';
 
 describe('constants', () => {
@@ -47,9 +47,9 @@ describe('constants', () => {
   });
 
   describe('storage keys and site', () => {
-    it('SITE_NAME, STORAGE_KEY et USER_NAME_KEY sont des chaînes non vides', () => {
-      expect(typeof SITE_NAME).toBe('string');
-      expect(SITE_NAME.length).toBeGreaterThan(0);
+    it('DEFAULT_SITE_NAME, STORAGE_KEY et USER_NAME_KEY sont des chaînes non vides', () => {
+      expect(typeof DEFAULT_SITE_NAME).toBe('string');
+      expect(DEFAULT_SITE_NAME.length).toBeGreaterThan(0);
       expect(typeof STORAGE_KEY).toBe('string');
       expect(STORAGE_KEY.length).toBeGreaterThan(0);
       expect(typeof USER_NAME_KEY).toBe('string');
