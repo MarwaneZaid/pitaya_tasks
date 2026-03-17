@@ -3,7 +3,8 @@ import { ChefHat, Store, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
 import { createRestaurant } from '../lib/db';
 
-const AUTH_DOMAIN = 'restaurant.dailydo.app';
+// Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
+const AUTH_DOMAIN = 'dailydo.app';
 
 function emailFromRestaurantName(name) {
   const slug = name
