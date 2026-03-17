@@ -16,6 +16,7 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
   const [config, setConfig] = useState(DEFAULT_PLANNING);
   const [activeTab, setActiveTab] = useState('general');
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -39,12 +40,16 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
   };
 
   const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
     try {
       await savePlanningConfig(config);
       onSave(config);
       onClose();
     } catch (e) {
       alert('Erreur lors de la sauvegarde de la configuration.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -139,8 +144,8 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto" onClick={onClose} role="dialog" aria-modal="true">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           <h2 className="text-lg font-bold text-slate-800">Configuration du Restaurant</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg"><X className="w-5 h-5 text-slate-500" /></button>
@@ -201,10 +206,19 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
           </div>
         )}
 
-        <div className="p-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-slate-600 text-sm font-medium hover:bg-slate-200 rounded-lg">Annuler</button>
-          <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-medium">
-            <Save className="w-4 h-4" /> Enregistrer la configuration
+        <div className="flex-shrink-0 p-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50 rounded-b-2xl">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 text-sm font-medium hover:bg-slate-200 rounded-lg">Annuler</button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleSave(); }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 disabled:opacity-70 disabled:cursor-wait text-sm font-medium cursor-pointer"
+          >
+            {saving ? (
+              <>Enregistrement...</>
+            ) : (
+              <><Save className="w-4 h-4" /> Enregistrer la configuration</>
+            )}
           </button>
         </div>
       </div>
