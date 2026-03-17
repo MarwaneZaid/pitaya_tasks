@@ -165,14 +165,16 @@ export default function Dashboard() {
 
       if (!isFirstTime && currentConfig) {
         const jour = JOURS[new Date().getDay()];
-        const tasksDuJour = currentConfig.planning?.[jour] || [];
+        const tasksDuJour = (currentConfig.planning?.[jour] || []).filter(
+          (t) => t.title && String(t.title).trim()
+        );
         if (tasksDuJour.length > 0) {
           const existing = new Set(list.filter(t => !t.completed || t.scheduledFor === today).map((t) => t.title));
-          const toAdd = tasksDuJour.filter((t) => !existing.has(t.title));
+          const toAdd = tasksDuJour.filter((t) => !existing.has(t.title.trim()));
           
           if (toAdd.length > 0) {
             const newTasks = toAdd.map((item) => ({
-              title: item.title,
+              title: (item.title || '').trim(),
               category: 'nettoyage',
               priority: item.priority || 'moyenne',
               taskType: TASK_TYPE_QUOTIDIEN,
@@ -240,7 +242,9 @@ export default function Dashboard() {
       return;
     }
     const existing = new Set(tasks.map((t) => t.title));
-    const toAdd = toAddTemplate.filter((t) => !existing.has(t.title));
+    const toAdd = toAddTemplate.filter(
+      (t) => t.title && String(t.title).trim() && !existing.has((t.title || '').trim())
+    );
     if (toAdd.length === 0) {
       alert('Toutes les tâches hebdomadaires sont déjà dans la liste.');
       return;
@@ -248,7 +252,7 @@ export default function Dashboard() {
     
     const today = getTodayDate();
     const newTasks = toAdd.map((item) => ({
-      title: item.title,
+      title: (item.title || '').trim(),
       category: 'nettoyage',
       priority: item.priority || 'moyenne',
       taskType: TASK_TYPE_ANNEXE,
