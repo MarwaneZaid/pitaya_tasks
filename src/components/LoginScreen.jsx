@@ -68,7 +68,12 @@ export default function LoginScreen({ onEnter }) {
       onEnter();
     } catch (err) {
       console.error(err);
-      setError(err.message || "Une erreur est survenue");
+      const msg = err.message || '';
+      if (msg.includes('rate limit') || msg.includes('rate_limit')) {
+        setError('Trop de tentatives. Réessayez dans quelques minutes, ou désactivez la confirmation email dans Supabase (Auth → Emails).');
+      } else {
+        setError(msg || "Une erreur est survenue");
+      }
     } finally {
       setLoading(false);
     }

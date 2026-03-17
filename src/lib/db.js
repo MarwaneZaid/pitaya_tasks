@@ -19,31 +19,29 @@ export async function getUserRestaurant() {
   };
 }
 
+const RPC_TIMEOUT_MS = 15000;
+
 export async function createRestaurant(name) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Non authentifié");
 
-  // 1. Créer le restaurant
-  const { data: resto, error: restoError } = await supabase
-    .from('restaurants')
-    .insert({ name })
-    .select('id')
-    .single();
-
-  if (restoError) throw restoError;
-
-  // 2. Assigner le rôle Owner
-  const { error: roleError } = await supabase
-    .from('user_roles')
-    .insert({
-      user_id: session.user.id,
-      restaurant_id: resto.id,
-      role: 'owner'
-    });
-
-  if (roleError) throw roleError;
-
-  return resto;
+  const rpcPromise = supabase.rpc('create_restaurant', { p_name: name });
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error("Délai dépassé. Vérifiez votre connexion ou exécutez le script SQL create_restaurant dans Supabase.")), RPC_TIMEOUT_MS)
+  );
+  try {
+    const result = await Promise.race([rpcPromise, timeoutPromise]);
+    const { data, error } = result;
+    if (error) {
+      if (error.message?.includes('function') && error.message?.includes('does not exist')) {
+        throw new Error("Fonction Supabase manquante. Exécutez docs/supabase-fix-restaurants-rls.sql dans le SQL Editor Supabase.");
+      }
+      throw error;
+    }
+    return { id: data?.id };
+  } catch (e) {
+    throw e;
+  }
 }
 
 export async function getPlanningConfig() {

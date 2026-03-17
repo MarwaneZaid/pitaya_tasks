@@ -139,3 +139,27 @@ drop trigger if exists planning_templates_updated_at on public.planning_template
 create trigger planning_templates_updated_at
   before update on public.planning_templates
   for each row execute function public.set_updated_at();
+
+-- 4. Création restaurant + rôle en une seule opération (contourne RLS)
+-- --------------------------------------------------------------------
+create or replace function public.create_restaurant(p_name text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_resto_id uuid;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then
+    raise exception 'Non authentifié';
+  end if;
+  insert into public.restaurants (name) values (p_name) returning id into v_resto_id;
+  insert into public.user_roles (user_id, restaurant_id, role) values (v_user_id, v_resto_id, 'owner');
+  return jsonb_build_object('id', v_resto_id);
+end;
+$$;
+grant execute on function public.create_restaurant(text) to authenticated;
+grant execute on function public.create_restaurant(text) to anon;
