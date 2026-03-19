@@ -149,7 +149,7 @@ export default function Dashboard() {
         setTasks([]);
         return;
       }
-      
+
       const dbTasks = await getTasks();
       let list = dbTasks || [];
       let isFirstTime = (!currentConfig.siteName && currentConfig.planning.lundi.length === 0);
@@ -171,7 +171,7 @@ export default function Dashboard() {
         if (tasksDuJour.length > 0) {
           const existing = new Set(list.filter(t => !t.completed || t.scheduledFor === today).map((t) => t.title));
           const toAdd = tasksDuJour.filter((t) => !existing.has(t.title.trim()));
-          
+
           if (toAdd.length > 0) {
             const newTasks = toAdd.map((item) => ({
               title: (item.title || '').trim(),
@@ -184,7 +184,7 @@ export default function Dashboard() {
               completed: false,
               createdBy: userName || 'Système',
             }));
-            
+
             const savedTasks = await saveTasks(newTasks);
             list.push(...savedTasks);
           }
@@ -214,7 +214,7 @@ export default function Dashboard() {
       completed: false,
       createdBy: userName,
     };
-    
+
     try {
       const savedTask = await saveTask(task);
       setTasks((prev) => [...prev, savedTask]);
@@ -247,7 +247,7 @@ export default function Dashboard() {
       alert('Toutes les tâches hebdomadaires sont déjà dans la liste.');
       return;
     }
-    
+
     const today = getTodayDate();
     const newTasks = toAdd.map((item) => ({
       title: (item.title || '').trim(),
@@ -260,7 +260,7 @@ export default function Dashboard() {
       completed: false,
       createdBy: userName,
     }));
-    
+
     try {
       const added = await saveTasks(newTasks);
       setTasks((prev) => [...prev, ...added]);
@@ -272,20 +272,20 @@ export default function Dashboard() {
   const toggleTask = async (id) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
-    
+
     const toggled = {
       ...task,
       completed: !task.completed,
       completedAt: !task.completed ? new Date().toISOString() : null,
       completedBy: !task.completed ? userName : null,
     };
-    
+
     // Optistic UI update
     setTasks(tasks.map((t) => t.id === id ? toggled : t));
-    
+
     try {
       await saveTask(toggled);
-    } catch(e) {
+    } catch (e) {
       console.error(e);
       // rollback
       setTasks(tasks);
@@ -297,7 +297,7 @@ export default function Dashboard() {
     setTasks(tasks.filter((t) => t.id !== id));
     try {
       await deleteTask(id);
-    } catch(e) {
+    } catch (e) {
       console.error(e);
       setTasks(tasks); // rollback
     }
@@ -529,16 +529,15 @@ export default function Dashboard() {
               const isActive = filter === id;
               const activeClass =
                 color === 'red' ? 'bg-red-500 text-white hover:bg-red-600' :
-                color === 'orange' ? 'bg-orange-500 text-white hover:bg-orange-600' :
-                color === 'green' ? 'bg-green-500 text-white hover:bg-green-600' :
-                'bg-slate-600 text-white hover:bg-slate-700';
+                  color === 'orange' ? 'bg-orange-500 text-white hover:bg-orange-600' :
+                    color === 'green' ? 'bg-green-500 text-white hover:bg-green-600' :
+                      'bg-slate-600 text-white hover:bg-slate-700';
               return (
                 <button
                   key={id}
                   onClick={() => setFilter(id)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? activeClass : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isActive ? activeClass : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                    }`}
                 >
                   {label}
                 </button>

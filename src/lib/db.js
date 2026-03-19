@@ -96,7 +96,7 @@ export async function savePlanningConfig(config) {
   }
 
   const upserts = [];
-  
+
   // Plannings journaliers
   for (const [day, tasks] of Object.entries(config.planning)) {
     upserts.push({
@@ -105,7 +105,7 @@ export async function savePlanningConfig(config) {
       tasks: tasks
     });
   }
-  
+
   // Annexes
   upserts.push({
     restaurant_id: resto.id,
@@ -195,7 +195,7 @@ export async function saveTask(task) {
     console.error("Erreur saveTask:", error);
     throw error;
   }
-  
+
   return { ...task, id: data.id };
 }
 
