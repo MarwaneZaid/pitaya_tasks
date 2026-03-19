@@ -12,7 +12,7 @@ import {
 import { applyAnnexeRollover } from './lib/taskRollover';
 import { shouldShowEndOfDayReminder } from './lib/reminder';
 import { isSupabaseConfigured, supabase } from './lib/storage-supabase';
-import { getUserRestaurant, getTasks, saveTask, deleteTask, getPlanningConfig, savePlanningConfig } from './lib/db';
+import { getUserRestaurant, getTasks, saveTask, saveTasks, deleteTask, getPlanningConfig, savePlanningConfig } from './lib/db';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
@@ -185,10 +185,8 @@ export default function Dashboard() {
               createdBy: userName || 'Système',
             }));
             
-            for(const t of newTasks) {
-               const saved = await saveTask(t);
-               list.push(saved);
-            }
+            const savedTasks = await saveTasks(newTasks);
+            list.push(...savedTasks);
           }
         }
       }
@@ -264,10 +262,7 @@ export default function Dashboard() {
     }));
     
     try {
-      const added = [];
-      for (const t of newTasks) {
-         added.push(await saveTask(t));
-      }
+      const added = await saveTasks(newTasks);
       setTasks((prev) => [...prev, ...added]);
     } catch (e) {
       console.error(e);

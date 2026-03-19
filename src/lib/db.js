@@ -200,9 +200,8 @@ export async function saveTask(task) {
 }
 
 export async function saveTasks(tasksArray) {
-  for (const task of tasksArray) {
-    await saveTask(task);
-  }
+  const saved = await Promise.all(tasksArray.map((task) => saveTask(task)));
+  return saved.filter(Boolean);
 }
 
 export async function deleteTask(taskId) {
