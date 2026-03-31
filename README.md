@@ -1,36 +1,104 @@
-# Pitaya Tasks
+# DailyDo — Tableau de bord partagé pour restaurants
 
-**Tableau de bord partagé** pour la gestion des tâches — **PITAYA BÉTHUNE**.  
-Tous les managers accèdent à la même app sur **téléphone ou ordinateur** ; les tâches sont **synchronisées** entre eux.
+Application de gestion de tâches en temps réel pour équipes de restaurant.
+Chaque restaurant utilise **sa propre base de données Supabase** — vos données sont 100% privées.
 
 ---
 
-## Déploiement : une seule config, puis partager le lien
+## Fonctionnalités
 
-**Objectif :** Tu configures la sync **une seule fois** sur Vercel. Ensuite tu envoies **juste le lien** à tes managers : ils ouvrent, se connectent avec leur nom, et voient directement la même liste. **Aucune config à faire sur chaque téléphone ou ordinateur.**
+- **Synchronisation en temps réel** entre tous les appareils (téléphones, PC)
+- **3 rôles** : Gérant (owner), Manager, Employé — avec permissions différentes
+- **3 types de tâches** : Quotidien obligatoire 🔴 · Annexe 🟠 · Semaine 🟢
+- **Report automatique** : les tâches annexes non faites sont reportées au lendemain
+- **Planning hebdomadaire** : configurez les tâches récurrentes par jour de la semaine
+- **Base de données autonome** : chaque restaurant entre ses propres credentials Supabase au premier lancement
 
-### 1. Créer le projet Supabase (une fois)
+---
 
-1. Va sur **[supabase.com](https://supabase.com)** → connecte-toi ou crée un compte.
-2. **New project** → nom (ex. `pitaya-tasks`), mot de passe, région → **Create**.
-3. **SQL Editor** → **New query** → copie tout le contenu de **`supabase-setup.sql`** (à la racine du repo) → **Run**.
-4. **Project Settings** (engrenage) → **API** : copie **Project URL** et la clé **anon public**.
+## Déploiement
 
-### 2. Déployer sur Vercel avec la sync activée
+### Option A — App autonome (revendue à plusieurs restaurants)
 
-1. Va sur **[vercel.com](https://vercel.com)** → **Add New Project** → importe le dépôt (ex. **MarwaneZaid/pitaya_tasks**).
-2. **Avant** de cliquer Deploy : **Settings** du projet → **Environment Variables**.
-3. Ajoute deux variables (pour Production, Preview, Development) :
-   - **Name :** `VITE_SUPABASE_URL` — **Value :** l’URL Supabase (ex. `https://xxxxx.supabase.co`).
-   - **Name :** `VITE_SUPABASE_ANON_KEY` — **Value :** la clé anon publique.
-4. **Deploy** (ou **Redeploy** si le projet existait déjà).
+1. Déployez l'app sur **[Vercel](https://vercel.com)** ou **[Netlify](https://netlify.com)** en important ce dépôt
+2. Partagez l'URL avec vos clients restaurants
+3. Chaque restaurant configure sa propre base Supabase au premier lancement (voir ci-dessous)
 
-Tu obtiens une URL, ex. : **`https://pitaya-tasks.vercel.app`**.
+### Option B — Un seul restaurant, credentials en dur
 
-### 3. Partager avec les managers
+Ajoutez ces variables d'environnement sur Vercel/Netlify avant de déployer :
+- `VITE_SUPABASE_URL` → URL de votre projet Supabase
+- `VITE_SUPABASE_ANON_KEY` → Clé anon publique
 
-- Envoie **ce lien** à tes managers (SMS, WhatsApp, etc.).
-- Chacun ouvre le lien sur **téléphone ou ordinateur**, entre **son nom**, et voit tout de suite la **même liste** synchronisée. Aucune étape de configuration à faire sur leur appareil.
+---
+
+## Guide de configuration pour chaque restaurant
+
+### 1. Créer un projet Supabase (gratuit, sans carte bancaire)
+
+1. Allez sur [supabase.com](https://supabase.com) → **New project**
+2. Choisissez un nom (ex. `mon-restaurant`), un mot de passe, une région → **Create**
+3. Attendez la création (~30 secondes)
+
+### 2. Exécuter le script SQL
+
+1. Dans Supabase : **SQL Editor** → **New query**
+2. Copiez tout le contenu du fichier `supabase-setup.sql`
+3. Cliquez **Run**
+
+> Si la dernière ligne provoque une erreur, ignorez-la et désactivez la confirmation email manuellement dans **Authentication → Email** → décochez "Enable email confirmations".
+
+### 3. Récupérer les credentials
+
+Dans Supabase : **Project Settings** → **API**
+- Copiez **Project URL** (ex. `https://xxxxx.supabase.co`)
+- Copiez la clé **anon public** (commence par `eyJ...`)
+
+### 4. Configurer l'app
+
+Au premier lancement, l'app affiche un écran de configuration.
+Entrez l'URL et la clé → **Tester la connexion** → **Lancer l'application**.
+
+---
+
+## Gestion des rôles et de l'équipe
+
+| Rôle | Symbole | Permissions |
+|------|---------|-------------|
+| Gérant | 👑 | Tout : configuration, planning, équipe, ajout/suppression, réinitialisation |
+| Manager | 🔑 | Ajout, suppression, validation de tâches + gestion équipe |
+| Employé | 👤 | Cocher les tâches terminées uniquement |
+
+### Inviter un membre de l'équipe
+
+1. Le gérant se connecte → icône **Équipe** (👥) → onglet **Inviter**
+2. Copier le **code d'invitation** (8 caractères)
+3. Le nouveau membre ouvre l'app, crée un compte, puis va dans **Équipe** → **Rejoindre** et saisit le code
+
+---
+
+## Types de tâches
+
+| Type | Comportement |
+|------|-------------|
+| 🔴 Quotidien obligatoire | Générées automatiquement chaque jour depuis le planning |
+| 🟠 Annexe | Reportées automatiquement au lendemain si non terminées |
+| 🟢 Semaine | À faire dans la semaine, sans report automatique |
+
+---
+
+## Développement local
+
+```bash
+npm install
+npm run dev
+# Ouvre http://localhost:5173
+# Entrez vos credentials Supabase au premier lancement
+```
+
+```bash
+npm test   # Lancer les tests
+```
 
 ---
 
@@ -38,28 +106,10 @@ Tu obtiens une URL, ex. : **`https://pitaya-tasks.vercel.app`**.
 
 ```
 src/
-  config/          # Planning nettoyage, constantes (catégories, filtres)
-  lib/             # Stockage (Supabase + polyfill localStorage)
-  components/     # LoginScreen, SettingsModal, StatsBar, PlanningCard
-  Dashboard.jsx   # Tableau de bord principal
-  App.jsx, main.jsx, index.css
-supabase-setup.sql # Script SQL à exécuter dans Supabase (une fois)
+  config/           # Constantes et configuration du planning
+  lib/              # Supabase client, DB, taskRollover, utilitaires
+  components/       # SetupScreen, LoginScreen, Onboarding, TaskItem, ...
+  Dashboard.jsx     # Tableau de bord principal avec gestion des rôles
+  App.jsx           # Point d'entrée (setup flow → login → dashboard)
+supabase-setup.sql  # Script SQL à exécuter dans Supabase (une seule fois)
 ```
-
----
-
-## Développement en local
-
-```bash
-npm install
-npm run dev
-```
-
-Ouvre http://localhost:5173. Pour tester la sync, configure Supabase via l’icône ⚙️ dans l’app.
-
----
-
-## GitHub
-
-- Dépôt : **https://github.com/MarwaneZaid/pitaya_tasks**
-- Pour pousser des changements : `git push -u origin main` (utilise un **Personal Access Token** comme mot de passe si demandé).

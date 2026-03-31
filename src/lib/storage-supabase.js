@@ -1,12 +1,22 @@
 /**
  * Stockage partagé via Supabase : synchronisation entre tous les managers (téléphones inclus).
- * Config : variables d'environnement OU saisie dans l'app (localStorage).
+ * Config : credentials saisis par le restaurant (localStorage) OU variables d'environnement.
+ * Priorité : localStorage > variables d'environnement
  */
 import { createClient } from '@supabase/supabase-js';
 
-const TABLE = 'app_storage';
+const LS_URL_KEY = 'dailydo_supabase_url';
+const LS_KEY_KEY = 'dailydo_supabase_anon_key';
 
 function getConfig() {
+  // Priorité 1 : credentials saisis par le restaurant dans l'app (localStorage)
+  try {
+    const lsUrl = localStorage.getItem(LS_URL_KEY);
+    const lsKey = localStorage.getItem(LS_KEY_KEY);
+    if (lsUrl && lsKey) return { url: lsUrl, anonKey: lsKey };
+  } catch (_) {}
+
+  // Priorité 2 : variables d'environnement (déploiement hébergé)
   const url = import.meta.env.VITE_SUPABASE_URL;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   return { url: url || null, anonKey: anonKey || null };
@@ -18,8 +28,10 @@ export function getSupabase() {
   if (supabase) return supabase;
   try {
     const { url, anonKey } = getConfig();
-    if (!url || !anonKey || anonKey.startsWith('REMPLACER')) return null;
-    supabase = createClient(url, anonKey);
+    if (!url || !anonKey || String(anonKey).startsWith('REMPLACER')) return null;
+    supabase = createClient(url, anonKey, {
+      auth: { persistSession: true, autoRefreshToken: true },
+    });
     return supabase;
   } catch (e) {
     console.error('Supabase init error:', e);
@@ -27,48 +39,51 @@ export function getSupabase() {
   }
 }
 
-
 export function isSupabaseConfigured() {
   const { url, anonKey } = getConfig();
   return !!(url && anonKey && !String(anonKey).startsWith('REMPLACER'));
 }
 
-
-
-export function initSupabaseStorage() {
-  getSupabase();
-  if (!supabase) return;
-
-  window.storage = {
-    async get(key, isShared = false) {
-      if (!isShared) {
-        const value = localStorage.getItem(key);
-        return { value };
-      }
-      const { data, error } = await supabase.from(TABLE).select('value').eq('key', key).maybeSingle();
-      if (error) {
-        console.error('Supabase get error:', error);
-        return { value: null };
-      }
-      return { value: data?.value ?? null };
-    },
-    async set(key, value, isShared = false) {
-      if (!isShared) {
-        localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
-        return;
-      }
-      const { error } = await supabase.from(TABLE).upsert(
-        { key, value: typeof value === 'string' ? value : JSON.stringify(value), updated_at: new Date().toISOString() },
-        { onConflict: 'key' }
-      );
-      if (error) console.error('Supabase set error:', error);
-    },
-    async delete(key, isShared = false) {
-      if (!isShared) {
-        localStorage.removeItem(key);
-        return;
-      }
-      await supabase.from(TABLE).delete().eq('key', key);
-    },
-  };
+/** Alias explicite : utilisé par App.jsx pour décider d'afficher le SetupScreen */
+export function hasSupabaseCredentials() {
+  return isSupabaseConfigured();
 }
+
+/**
+ * Sauvegarde les credentials Supabase dans le localStorage et réinitialise le client.
+ */
+export function saveSupabaseCredentials(url, anonKey) {
+  localStorage.setItem(LS_URL_KEY, url.trim());
+  localStorage.setItem(LS_KEY_KEY, anonKey.trim());
+  supabase = null; // Force la réinitialisation du client
+  return getSupabase();
+}
+
+/**
+ * Supprime les credentials du localStorage (pour reconfigurer).
+ */
+export function clearSupabaseCredentials() {
+  localStorage.removeItem(LS_URL_KEY);
+  localStorage.removeItem(LS_KEY_KEY);
+  supabase = null;
+}
+
+/**
+ * Teste une connexion Supabase avec les credentials fournis, sans les sauvegarder.
+ * Retourne { ok: true } ou { ok: false, error: string }
+ */
+export async function testSupabaseConnection(url, anonKey) {
+  try {
+    const testClient = createClient(url.trim(), anonKey.trim());
+    const { error } = await testClient.auth.getSession();
+    if (error && !error.message?.includes('session')) {
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || 'Connexion impossible. Vérifiez l\'URL et la clé.' };
+  }
+}
+
+// Initialisation automatique au chargement du module
+getSupabase();

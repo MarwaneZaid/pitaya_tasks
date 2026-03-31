@@ -3,7 +3,7 @@ import { Trash2, CheckCircle2, Circle, Clock, AlertCircle } from 'lucide-react';
 import { isUrgent, isOverdue, displayName } from '../lib/taskUtils';
 import { TASK_TYPE_QUOTIDIEN, TASK_TYPE_SEMAINE, TASK_TYPE_ANNEXE, TASK_TYPE_COLORS, TASK_TYPE_LABELS, PRIORITY_COLORS } from '../config/constants';
 
-export default function TaskItem({ task, toggleTask, deleteTask }) {
+export default function TaskItem({ task, toggleTask, deleteTask, canDelete = false }) {
   return (
     <li
       className={`bg-white rounded-xl border-l-4 shadow-sm p-4 ${
@@ -68,12 +68,15 @@ export default function TaskItem({ task, toggleTask, deleteTask }) {
             Créée par {displayName(task.createdBy)} · {task.completed && task.completedBy && `Terminée par ${displayName(task.completedBy)}`}
           </p>
         </div>
-        <button
-          onClick={() => deleteTask(task.id)}
-          className="p-2 text-red-500 hover:bg-red-50 rounded-lg shrink-0"
-        >
-          <Trash2 className="w-5 h-5" />
-        </button>
+        {canDelete && (
+          <button
+            onClick={() => deleteTask(task.id)}
+            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg shrink-0 transition-colors"
+            title="Supprimer la tâche"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        )}
       </div>
     </li>
   );
