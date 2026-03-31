@@ -85,5 +85,13 @@ export async function testSupabaseConnection(url, anonKey) {
   }
 }
 
+/**
+ * Compatibilité avec main.jsx — ne fait plus rien car le client s'initialise
+ * automatiquement via getSupabase() au chargement du module.
+ */
+export function initSupabaseStorage() {
+  getSupabase();
+}
+
 // Initialisation automatique au chargement du module
 getSupabase();
