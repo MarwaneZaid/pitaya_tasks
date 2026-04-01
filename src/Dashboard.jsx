@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle,
-  RefreshCw, Settings, Wifi, Edit, ShieldCheck, User, LogOut, Database
+  RefreshCw, Wifi, Edit, ShieldCheck, User, LogOut, Database
 } from 'lucide-react';
 import { JOURS } from './config/planning';
 import {

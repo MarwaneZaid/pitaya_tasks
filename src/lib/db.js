@@ -4,11 +4,22 @@ function getClient() {
   return getSupabase() || supabase;
 }
 
+let cachedRestaurant = null;
+let cachedRestaurantAt = 0;
+const RESTAURANT_CACHE_MS = 10000;
+
 export async function getUserRestaurant() {
   const client = getClient();
   if (!client) return null;
   const { data: { session } } = await client.auth.getSession();
   if (!session) return null;
+
+   if (
+    cachedRestaurant &&
+    Date.now() - cachedRestaurantAt < RESTAURANT_CACHE_MS
+  ) {
+    return cachedRestaurant;
+  }
 
   const { data: role, error } = await client
     .from('user_roles')
@@ -18,11 +29,14 @@ export async function getUserRestaurant() {
 
   if (error || !role) return null;
 
-  return {
+  const restaurant = {
     id: role.restaurant_id,
     name: role.restaurants.name,
     role: role.role
   };
+  cachedRestaurant = restaurant;
+  cachedRestaurantAt = Date.now();
+  return restaurant;
 }
 
 const RPC_TIMEOUT_MS = 12000;
@@ -46,6 +60,8 @@ export async function createRestaurant(name) {
       }
       throw error;
     }
+    cachedRestaurant = null;
+    cachedRestaurantAt = 0;
     return { id: data?.id };
   } catch (e) {
     throw e;
@@ -93,6 +109,8 @@ export async function savePlanningConfig(config) {
   if (!client) throw new Error("Supabase n'est pas configuré.");
   if (config.siteName && config.siteName !== resto.name) {
     await client.from('restaurants').update({ name: config.siteName }).eq('id', resto.id);
+    cachedRestaurant = { ...resto, name: config.siteName };
+    cachedRestaurantAt = Date.now();
   }
 
   const upserts = [];
@@ -200,8 +218,46 @@ export async function saveTask(task) {
 }
 
 export async function saveTasks(tasksArray) {
-  const saved = await Promise.all(tasksArray.map((task) => saveTask(task)));
-  return saved.filter(Boolean);
+  const client = getClient();
+  if (!client || !Array.isArray(tasksArray) || tasksArray.length === 0) return [];
+  const resto = await getUserRestaurant();
+  if (!resto) return [];
+
+  const payload = tasksArray.map((task) => {
+    const dbTask = {
+      restaurant_id: resto.id,
+      title: task.title,
+      category: task.category || 'nettoyage',
+      priority: task.priority || 'moyenne',
+      task_type: task.taskType || 'quotidien',
+      scheduled_for: task.scheduledFor,
+      assigned_to: task.assignedTo || null,
+      completed: task.completed || false,
+      created_by: task.createdBy,
+      completed_at: task.completedAt || null,
+      completed_by: task.completedBy || null
+    };
+    if (typeof task.id === 'string' && task.id.length > 20) {
+      dbTask.id = task.id;
+    }
+    return dbTask;
+  });
+
+  const { data, error } = await client
+    .from('tasks')
+    .upsert(payload, { onConflict: 'id' })
+    .select();
+
+  if (error) {
+    console.error('Erreur saveTasks:', error);
+    throw error;
+  }
+
+  const byTitle = new Map((data || []).map((row) => [row.title, row]));
+  return tasksArray.map((task) => {
+    const row = byTitle.get(task.title);
+    return row ? { ...task, id: row.id } : task;
+  });
 }
 
 export async function deleteTask(taskId) {
