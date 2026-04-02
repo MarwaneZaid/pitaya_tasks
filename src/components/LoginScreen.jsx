@@ -69,7 +69,7 @@ export default function LoginScreen({ onEnter }) {
         }
         // Confirmation e-mail activée → pas de session tout de suite : ne pas ouvrir le tableau vide
         if (!signUpData.session) {
-          setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous. Si les e-mails sont déjà désactivés dans Supabase, réessayez dans quelques secondes.');
+          setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous.');
           return;
         }
         // Pas de createRestaurant ici — c'est l'écran Onboarding qui le fera

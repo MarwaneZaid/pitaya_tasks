@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Dashboard from './Dashboard';
 import ErrorBoundary from './components/ErrorBoundary';
 import SetupScreen from './components/SetupScreen';
-import { hasSupabaseCredentials } from './lib/storage-supabase';
+import { hasSupabaseCredentials, isSupabaseEmbeddedInBuild } from './lib/storage-supabase';
 
 export default function App() {
   const [configured, setConfigured] = useState(() => hasSupabaseCredentials());
@@ -20,7 +20,12 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <Dashboard onResetConfig={() => setConfigured(false)} />
+      <Dashboard
+        onResetConfig={() => {
+          // Config embarquée (Vercel) : ne pas renvoyer vers l'écran technique des clés
+          if (!isSupabaseEmbeddedInBuild()) setConfigured(false);
+        }}
+      />
     </ErrorBoundary>
   );
 }

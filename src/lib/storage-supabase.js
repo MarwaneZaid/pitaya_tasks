@@ -1,25 +1,36 @@
 /**
  * Stockage partagé via Supabase : synchronisation entre tous les managers (téléphones inclus).
- * Config : credentials saisis par le restaurant (localStorage) OU variables d'environnement.
- * Priorité : localStorage > variables d'environnement
+ * Config : variables d'environnement (SaaS / Vercel) OU saisie dans l'app (localStorage).
+ * Priorité : VITE_SUPABASE_* valides > localStorage — un déploiement central impose toujours le même projet.
  */
 import { createClient } from '@supabase/supabase-js';
 
 const LS_URL_KEY = 'dailydo_supabase_url';
 const LS_KEY_KEY = 'dailydo_supabase_anon_key';
 
+function readEmbeddedEnv() {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !anonKey || String(anonKey).startsWith('REMPLACER')) return null;
+  return { url, anonKey };
+}
+
+/** True quand URL + clé anon sont fournies au build (ex. Vercel) : pas d'écran « coller les clés ». */
+export function isSupabaseEmbeddedInBuild() {
+  return readEmbeddedEnv() !== null;
+}
+
 function getConfig() {
-  // Priorité 1 : credentials saisis par le restaurant dans l'app (localStorage)
+  const embedded = readEmbeddedEnv();
+  if (embedded) return embedded;
+
   try {
     const lsUrl = localStorage.getItem(LS_URL_KEY);
     const lsKey = localStorage.getItem(LS_KEY_KEY);
     if (lsUrl && lsKey) return { url: lsUrl, anonKey: lsKey };
   } catch (_) {}
 
-  // Priorité 2 : variables d'environnement (déploiement hébergé)
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  return { url: url || null, anonKey: anonKey || null };
+  return { url: null, anonKey: null };
 }
 
 export let supabase = null;
@@ -53,6 +64,10 @@ export function hasSupabaseCredentials() {
  * Sauvegarde les credentials Supabase dans le localStorage et réinitialise le client.
  */
 export function saveSupabaseCredentials(url, anonKey) {
+  if (isSupabaseEmbeddedInBuild()) {
+    supabase = null;
+    return getSupabase();
+  }
   localStorage.setItem(LS_URL_KEY, url.trim());
   localStorage.setItem(LS_KEY_KEY, anonKey.trim());
   supabase = null; // Force la réinitialisation du client

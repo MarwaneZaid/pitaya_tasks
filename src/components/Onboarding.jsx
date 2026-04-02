@@ -168,7 +168,7 @@ export default function Onboarding({ onComplete, defaultName = '' }) {
 
                 <button
                   type="submit"
-                  disabled={loading || joinCode.trim().length < 6}
+                  disabled={loading || joinCode.trim().length < 8}
                   className="w-full py-3 px-4 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (

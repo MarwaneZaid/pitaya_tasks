@@ -14,7 +14,12 @@ import {
 } from './config/constants';
 import { applyAnnexeRollover } from './lib/taskRollover';
 import { shouldShowEndOfDayReminder } from './lib/reminder';
-import { isSupabaseConfigured, supabase, clearSupabaseCredentials } from './lib/storage-supabase';
+import {
+  isSupabaseConfigured,
+  isSupabaseEmbeddedInBuild,
+  supabase,
+  clearSupabaseCredentials,
+} from './lib/storage-supabase';
 import { getUserRestaurant, getTasks, saveTask, saveTasks, deleteTask, getPlanningConfig, savePlanningConfig } from './lib/db';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
@@ -328,7 +333,10 @@ export default function Dashboard({ onResetConfig }) {
   };
 
   const handleResetConfig = () => {
-    if (!confirm('Reconfigurer la base de données ? Vous serez déconnecté.')) return;
+    const msg = isSupabaseEmbeddedInBuild()
+      ? 'Vous allez être déconnecté. La connexion à la base est gérée par l\'application.'
+      : 'Reconfigurer la base de données ? Vous serez déconnecté.';
+    if (!confirm(msg)) return;
     if (supabase) supabase.auth.signOut();
     clearSupabaseCredentials();
     if (onResetConfig) onResetConfig();
