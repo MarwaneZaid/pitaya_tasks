@@ -29,8 +29,13 @@ export function applyAnnexeRollover(tasks, today) {
     completedAt: null,
     completedBy: null,
   }));
+  const removedTaskIds = toRollover
+    .map((t) => t.id)
+    .filter((id) => typeof id === 'string' && id.length > 20);
+
   return {
     tasks: [...rest, ...copies],
     changed: copies.length > 0,
+    removedTaskIds,
   };
 }

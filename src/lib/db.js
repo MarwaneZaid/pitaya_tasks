@@ -1,4 +1,5 @@
 import { supabase, getSupabase } from './storage-supabase';
+import { mergeTasksWithUpsertRows } from './saveTasksMerge';
 
 function getClient() {
   return getSupabase() || supabase;
@@ -14,7 +15,7 @@ export async function getUserRestaurant() {
   const { data: { session } } = await client.auth.getSession();
   if (!session) return null;
 
-   if (
+  if (
     cachedRestaurant &&
     Date.now() - cachedRestaurantAt < RESTAURANT_CACHE_MS
   ) {
@@ -253,11 +254,7 @@ export async function saveTasks(tasksArray) {
     throw error;
   }
 
-  const byTitle = new Map((data || []).map((row) => [row.title, row]));
-  return tasksArray.map((task) => {
-    const row = byTitle.get(task.title);
-    return row ? { ...task, id: row.id } : task;
-  });
+  return mergeTasksWithUpsertRows(tasksArray, payload, data);
 }
 
 export async function deleteTask(taskId) {

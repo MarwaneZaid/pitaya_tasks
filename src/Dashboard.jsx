@@ -206,9 +206,10 @@ export default function Dashboard({ onResetConfig }) {
       setPlanningConfig(currentConfig);
 
       const today = getTodayDate();
-      const { tasks: updated, changed } = applyAnnexeRollover(list, today);
+      const { tasks: updated, changed, removedTaskIds } = applyAnnexeRollover(list, today);
       if (changed) {
         list = updated;
+        await Promise.all(removedTaskIds.map((id) => deleteTask(id)));
         await Promise.all(list.map(t => saveTask(t)));
       }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { applyAnnexeRollover } from './taskRollover';
 
 describe('applyAnnexeRollover', () => {
@@ -8,6 +8,10 @@ describe('applyAnnexeRollover', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-02-12T10:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('ne modifie rien si aucune tâche annexe à reporter', () => {
@@ -104,5 +108,24 @@ describe('applyAnnexeRollover', () => {
     const { tasks: result, changed } = applyAnnexeRollover([], today);
     expect(changed).toBe(false);
     expect(result).toHaveLength(0);
+  });
+
+  it('expose les UUID reportés pour suppression côté base', () => {
+    const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const tasks = [
+      { id: uuid, title: 'À reporter', taskType: 'annexe', completed: false, scheduledFor: yesterday },
+    ];
+    const { removedTaskIds, changed } = applyAnnexeRollover(tasks, today);
+    expect(changed).toBe(true);
+    expect(removedTaskIds).toEqual([uuid]);
+  });
+
+  it('n’inclut pas les ids numériques (brouillon non persisté) dans removedTaskIds', () => {
+    const tasks = [
+      { id: 1700000000999, title: 'Brouillon', taskType: 'annexe', completed: false, scheduledFor: yesterday },
+    ];
+    const { removedTaskIds, changed } = applyAnnexeRollover(tasks, today);
+    expect(changed).toBe(true);
+    expect(removedTaskIds).toEqual([]);
   });
 });
