@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { ChefHat, Store, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
-import { createRestaurant } from '../lib/db';
 
 // Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
 const AUTH_DOMAIN = 'dailydo.app';
@@ -44,6 +43,7 @@ export default function LoginScreen({ onEnter }) {
       const email = emailFromRestaurantName(name);
 
       if (isLogin) {
+        // Connexion : essayer d'abord le domaine principal, puis legacy
         let signInError = (await supabase.auth.signInWithPassword({ email, password })).error;
         if (signInError?.message?.includes('Invalid login credentials')) {
           const emailLegacy = emailFromRestaurantName(name, AUTH_DOMAIN_LEGACY);
@@ -51,9 +51,14 @@ export default function LoginScreen({ onEnter }) {
         }
         if (signInError) throw signInError;
       } else {
-        const { error: signUpError } = await supabase.auth.signUp({
+        // Inscription : stocker le nom du restaurant dans les métadonnées
+        // pour le pré-remplir dans l'écran d'onboarding
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
+          options: {
+            data: { restaurant_name: name },
+          },
         });
         if (signUpError) {
           if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
@@ -62,7 +67,12 @@ export default function LoginScreen({ onEnter }) {
           }
           throw signUpError;
         }
-        await createRestaurant(name);
+        // Confirmation e-mail activée → pas de session tout de suite : ne pas ouvrir le tableau vide
+        if (!signUpData.session) {
+          setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous. Si les e-mails sont déjà désactivés dans Supabase, réessayez dans quelques secondes.');
+          return;
+        }
+        // Pas de createRestaurant ici — c'est l'écran Onboarding qui le fera
       }
 
       onEnter();
@@ -70,7 +80,7 @@ export default function LoginScreen({ onEnter }) {
       console.error(err);
       const msg = err.message || '';
       if (msg.includes('rate limit') || msg.includes('rate_limit')) {
-        setError('Trop de tentatives. Réessayez dans quelques minutes, ou désactivez la confirmation email dans Supabase (Auth → Emails).');
+        setError('Trop de tentatives. Réessayez dans quelques minutes.');
       } else {
         setError(msg || "Une erreur est survenue");
       }
@@ -100,7 +110,9 @@ export default function LoginScreen({ onEnter }) {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Nom du restaurant</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                {isLogin ? 'Nom du restaurant' : 'Nom de votre restaurant'}
+              </label>
               <div className="relative">
                 <Store className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
@@ -130,7 +142,7 @@ export default function LoginScreen({ onEnter }) {
                   autoComplete={isLogin ? 'current-password' : 'new-password'}
                 />
               </div>
-              <p className="mt-1 text-xs text-slate-500">6 caractères minimum (requis par Supabase)</p>
+              <p className="mt-1 text-xs text-slate-500">6 caractères minimum</p>
             </div>
 
             <button
@@ -143,7 +155,7 @@ export default function LoginScreen({ onEnter }) {
               ) : isLogin ? (
                 'Se connecter'
               ) : (
-                "Créer mon espace"
+                'Continuer →'
               )}
             </button>
           </form>

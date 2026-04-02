@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Plus, Trash2, CheckCircle2, Circle, Clock, Users, ChefHat, AlertCircle,
-  RefreshCw, Wifi, Edit, ShieldCheck, User, LogOut, Database
+  Plus, Trash2, CheckCircle2, Users, ChefHat, AlertCircle,
+  RefreshCw, Wifi, Edit, User, LogOut, Database
 } from 'lucide-react';
 import { JOURS } from './config/planning';
 import {
@@ -102,6 +102,7 @@ export default function Dashboard({ onResetConfig }) {
   const [planningConfig, setPlanningConfig] = useState(null);
   const [showPlanningSettings, setShowPlanningSettings] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [onboardingDefaultName, setOnboardingDefaultName] = useState('');
   const [showTeam, setShowTeam] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const realtimeChannelRef = useRef(null);
@@ -113,6 +114,9 @@ export default function Dashboard({ onResetConfig }) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setUserName(session.user.email);
+          // Récupérer le nom du restaurant depuis les métadonnées auth (inscrit lors du sign-up)
+          const metaName = session.user.user_metadata?.restaurant_name || '';
+          setOnboardingDefaultName(metaName);
           const resto = await getUserRestaurant();
           if (!resto) {
             setNeedsOnboarding(true);
@@ -137,6 +141,8 @@ export default function Dashboard({ onResetConfig }) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session) {
           setUserName(session.user.email);
+          const metaName = session.user.user_metadata?.restaurant_name || '';
+          setOnboardingDefaultName(metaName);
           const resto = await getUserRestaurant();
           if (!resto) {
             setNeedsOnboarding(true);
@@ -342,7 +348,7 @@ export default function Dashboard({ onResetConfig }) {
 
   // ─── Écrans de garde ──────────────────────────────────────────────────────────
   if (!isNameSet) return <LoginScreen onEnter={() => setIsNameSet(true)} />;
-  if (needsOnboarding) return <Onboarding onComplete={() => { setNeedsOnboarding(false); loadTasks(); }} />;
+  if (needsOnboarding) return <Onboarding defaultName={onboardingDefaultName} onComplete={() => { setNeedsOnboarding(false); loadTasks(); }} />;
 
   const filtered = getFilteredTasks();
   const sorted = [...filtered].sort((a, b) => {
