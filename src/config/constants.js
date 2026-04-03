@@ -45,6 +45,12 @@ export const FILTER_OPTIONS = [
 
 export const DEFAULT_SITE_NAME = 'Mon Restaurant';
 
+/** URL publique de l’app (liens, redirects). Surcharge : VITE_APP_ORIGIN sur Vercel si besoin. */
+export const APP_PUBLIC_ORIGIN = (() => {
+  const v = typeof import.meta.env.VITE_APP_ORIGIN === 'string' ? import.meta.env.VITE_APP_ORIGIN.trim() : '';
+  return (v || 'https://dailydo.app').replace(/\/$/, '');
+})();
+
 /** Clé de stockage partagé (Supabase/localStorage). Une clé = une configuration de restaurant. */
 export const STORAGE_KEY = typeof import.meta.env.VITE_STORAGE_KEY === 'string' && import.meta.env.VITE_STORAGE_KEY.trim()
   ? import.meta.env.VITE_STORAGE_KEY.trim()

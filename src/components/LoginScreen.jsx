@@ -35,6 +35,7 @@ export default function LoginScreen({ onEnter }) {
     setLoading(true);
     setError(null);
 
+    let shouldEnter = false;
     try {
       if (!supabase) {
         throw new Error("Supabase n'est pas configuré. Vérifiez les variables d'environnement.");
@@ -50,6 +51,7 @@ export default function LoginScreen({ onEnter }) {
           signInError = (await supabase.auth.signInWithPassword({ email: emailLegacy, password })).error;
         }
         if (signInError) throw signInError;
+        shouldEnter = true;
       } else {
         // Inscription : stocker le nom du restaurant dans les métadonnées
         // pour le pré-remplir dans l'écran d'onboarding
@@ -73,9 +75,8 @@ export default function LoginScreen({ onEnter }) {
           return;
         }
         // Pas de createRestaurant ici — c'est l'écran Onboarding qui le fera
+        shouldEnter = true;
       }
-
-      onEnter();
     } catch (err) {
       console.error(err);
       const msg = err.message || '';
@@ -87,6 +88,8 @@ export default function LoginScreen({ onEnter }) {
     } finally {
       setLoading(false);
     }
+
+    if (shouldEnter) onEnter();
   };
 
   return (
@@ -171,7 +174,7 @@ export default function LoginScreen({ onEnter }) {
           </div>
 
           <p className="mt-8 text-xs text-slate-400 text-center">
-            Une gestion centralisée pour toutes vos équipes.
+            dailydo.app — gestion centralisée pour vos équipes.
           </p>
         </div>
       </div>

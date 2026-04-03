@@ -1,7 +1,8 @@
 # DailyDo — Tableau de bord partagé pour restaurants
 
-Application de gestion de tâches en temps réel pour équipes de restaurant.
-Chaque restaurant utilise **sa propre base de données Supabase** — vos données sont 100% privées.
+**Site : [dailydo.app](https://dailydo.app)** (à brancher sur Vercel comme domaine personnalisé une fois le DNS configuré).
+
+Application de gestion de tâches en temps réel pour équipes de restaurant. Un backend Supabase peut servir tous les établissements ; chaque restaurant est isolé dans la base (droits et données).
 
 ---
 
@@ -12,7 +13,7 @@ Chaque restaurant utilise **sa propre base de données Supabase** — vos donné
 - **3 types de tâches** : Quotidien obligatoire 🔴 · Annexe 🟠 · Semaine 🟢
 - **Report automatique** : les tâches annexes non faites sont reportées au lendemain
 - **Planning hebdomadaire** : configurez les tâches récurrentes par jour de la semaine
-- **Base de données autonome** : chaque restaurant entre ses propres credentials Supabase au premier lancement
+- **Déploiement SaaS** : avec `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` sur l’hébergeur, les utilisateurs n’ont pas à coller de clés ; sinon mode setup manuel au premier lancement
 
 ---
 

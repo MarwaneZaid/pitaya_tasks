@@ -9,6 +9,7 @@ import {
   STORAGE_KEY,
   USER_NAME_KEY,
   DEFAULT_SITE_NAME,
+  APP_PUBLIC_ORIGIN,
 } from './constants';
 
 describe('constants', () => {
@@ -47,9 +48,10 @@ describe('constants', () => {
   });
 
   describe('storage keys and site', () => {
-    it('DEFAULT_SITE_NAME, STORAGE_KEY et USER_NAME_KEY sont des chaînes non vides', () => {
+    it('DEFAULT_SITE_NAME, APP_PUBLIC_ORIGIN, STORAGE_KEY et USER_NAME_KEY sont des chaînes non vides', () => {
       expect(typeof DEFAULT_SITE_NAME).toBe('string');
       expect(DEFAULT_SITE_NAME.length).toBeGreaterThan(0);
+      expect(APP_PUBLIC_ORIGIN).toMatch(/^https:\/\//);
       expect(typeof STORAGE_KEY).toBe('string');
       expect(STORAGE_KEY.length).toBeGreaterThan(0);
       expect(typeof USER_NAME_KEY).toBe('string');

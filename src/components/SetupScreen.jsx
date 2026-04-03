@@ -64,22 +64,34 @@ export default function SetupScreen({ onComplete }) {
             <div className="p-8">
               <h2 className="text-xl font-bold text-slate-800 mb-2">Bienvenue !</h2>
               <p className="text-slate-500 text-sm mb-6">
-                DailyDo permet à votre équipe de partager une liste de tâches en temps réel. Chaque restaurant utilise <strong>sa propre base de données Supabase</strong> — vos données sont 100% privées.
+                DailyDo synchronise les tâches de votre équipe en temps réel. <strong>Un seul projet Supabase</strong> peut servir tous les restaurants : chaque établissement est isolé dans la base (droits et données séparés). Les utilisateurs n’ont jamais à coller une URL ou une clé sur l’app en ligne.
               </p>
+
+              {import.meta.env.DEV && (
+                <div className="mb-6 p-4 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-700">
+                  <p className="font-semibold text-slate-800 mb-1">Mode développement</p>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Pour sauter cet écran en local, copiez <code className="bg-white px-1 rounded border">.env.example</code> vers{' '}
+                    <code className="bg-white px-1 rounded border">.env</code> et renseignez{' '}
+                    <code className="bg-white px-1 rounded border">VITE_SUPABASE_URL</code> +{' '}
+                    <code className="bg-white px-1 rounded border">VITE_SUPABASE_ANON_KEY</code> (comme sur Vercel). Redémarrez <code className="bg-white px-1 rounded border">npm run dev</code>.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-4 mb-8">
                 <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200">
                   <Database className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-800">Supabase gratuit</p>
-                    <p className="text-xs text-amber-700 mt-0.5">Créez un projet Supabase gratuitement (offre Free). Aucune carte bancaire requise.</p>
+                    <p className="text-sm font-semibold text-amber-800">Hébergement technique</p>
+                    <p className="text-xs text-amber-700 mt-0.5">Les données passent par Supabase (offre gratuite possible). Ce n’est pas « un compte par restaurant » : c’est le même backend DailyDo, configuré une fois par l’administrateur.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-xl border border-blue-200">
                   <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-blue-800">Configuration en 5 minutes</p>
-                    <p className="text-xs text-blue-700 mt-0.5">Créez le projet, exécutez le script SQL fourni, entrez les 2 clés → c'est prêt.</p>
+                    <p className="text-sm font-semibold text-blue-800">Cet écran = mode spécial</p>
+                    <p className="text-xs text-blue-700 mt-0.5">Vous le voyez si l’app n’a pas de variables d’environnement (ex. test local sans .env). Sinon, vous arrivez directement sur la connexion restaurant.</p>
                   </div>
                 </div>
               </div>
@@ -91,14 +103,15 @@ export default function SetupScreen({ onComplete }) {
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl transition-colors mb-3 text-sm"
               >
                 <ExternalLink className="w-4 h-4" />
-                Créer un projet Supabase (gratuit)
+                Créer un projet Supabase (auto-hébergement / dev)
               </a>
 
               <button
+                type="button"
                 onClick={() => setStep(1)}
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors"
               >
-                J'ai déjà un projet Supabase
+                J’ai l’URL et la clé anon
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -107,9 +120,9 @@ export default function SetupScreen({ onComplete }) {
           {/* Step 1: Database credentials */}
           {step === 1 && (
             <div className="p-8">
-              <h2 className="text-xl font-bold text-slate-800 mb-2">Connecter votre base de données</h2>
+              <h2 className="text-xl font-bold text-slate-800 mb-2">Connecter le backend</h2>
               <p className="text-slate-500 text-sm mb-6">
-                Dans votre projet Supabase → <strong>Project Settings</strong> → <strong>API</strong>, copiez ces deux valeurs :
+                Dans le projet Supabase utilisé par DailyDo → <strong>Project Settings</strong> → <strong>API</strong>, copiez l’URL et la clé <strong>anon public</strong> :
               </p>
 
               {/* Instruction boxes */}
@@ -153,7 +166,7 @@ export default function SetupScreen({ onComplete }) {
               {/* SQL Script reminder */}
               <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-xl">
                 <p className="text-xs text-blue-700">
-                  <strong>Important :</strong> Avant de continuer, exécutez le fichier <code className="bg-blue-100 px-1 rounded">supabase-setup.sql</code> dans le SQL Editor de Supabase (New query → coller → Run). Cela crée les tables nécessaires.
+                  <strong>Important :</strong> dans le SQL Editor Supabase, exécutez le script du dépôt <code className="bg-blue-100 px-1 rounded">src/supabase-saas-setup.sql</code> (ou <code className="bg-blue-100 px-1 rounded">supabase-setup.sql</code> selon votre version). Cela crée les tables et règles nécessaires.
                 </p>
               </div>
 
@@ -223,7 +236,7 @@ export default function SetupScreen({ onComplete }) {
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
                 <p className="text-xs text-amber-700">
-                  <strong>Ces informations sont sauvegardées localement</strong> sur cet appareil. Pour partager l'app avec votre équipe, ils devront entrer les mêmes credentials (ou vous pouvez déployer l'app avec ces variables en dur).
+                  <strong>Sauvegarde locale.</strong> Ces clés sont enregistrées dans le navigateur de cet appareil uniquement. Sur un déploiement Vercel avec <code className="bg-amber-100 px-0.5 rounded">VITE_SUPABASE_*</code>, l’équipe n’a pas à les saisir.
                 </p>
               </div>
 
@@ -246,8 +259,8 @@ export default function SetupScreen({ onComplete }) {
           )}
         </div>
 
-        <p className="text-center text-slate-600 text-xs mt-6">
-          Vos données restent dans votre propre base Supabase. DailyDo n'y accède pas.
+        <p className="text-center text-slate-600 text-xs mt-6 max-w-md mx-auto leading-relaxed">
+          DailyDo utilise Supabase comme base sécurisée ; chaque restaurant ne voit que ses données. L’application ne lit pas vos tables hors de ce modèle.
         </p>
       </div>
     </div>

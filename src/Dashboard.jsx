@@ -208,10 +208,12 @@ export default function Dashboard({ onResetConfig }) {
   const loadTasks = async () => {
     setLoading(true);
     try {
-      const currentConfig = supabase ? await getPlanningConfig() : null;
+      const [currentConfig, dbTasks] = await Promise.all([
+        supabase ? getPlanningConfig() : Promise.resolve(null),
+        supabase ? getTasks() : Promise.resolve([]),
+      ]);
       if (!currentConfig) { setTasks([]); return; }
 
-      const dbTasks = await getTasks();
       let list = dbTasks || [];
       const isFirstTime = (!currentConfig.siteName && currentConfig.planning.lundi.length === 0);
       setPlanningConfig(currentConfig);

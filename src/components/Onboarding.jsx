@@ -4,18 +4,36 @@ import { createRestaurant, joinRestaurantByCode } from '../lib/db';
 import { getSupabase } from '../lib/storage-supabase';
 import { DEFAULT_SITE_NAME } from '../config/constants';
 
+const CREATE_SPACE_HINTS = [
+  'Création de votre espace…',
+  'Enregistrement dans la base sécurisée…',
+  'Finalisation…',
+];
+
 export default function Onboarding({ onComplete, defaultName = '' }) {
   const [mode, setMode] = useState('create'); // 'create' | 'join'
   const [restoName, setRestoName] = useState(defaultName);
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [loadingHintIdx, setLoadingHintIdx] = useState(0);
 
   // Réchauffer la connexion Supabase dès l'affichage pour accélérer la création
   useEffect(() => {
     const client = getSupabase();
     if (client) client.auth.getSession().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingHintIdx(0);
+      return;
+    }
+    const id = setInterval(() => {
+      setLoadingHintIdx((i) => (i + 1) % CREATE_SPACE_HINTS.length);
+    }, 4500);
+    return () => clearInterval(id);
+  }, [loading]);
 
   // Sync le nom par défaut si fourni après montage
   useEffect(() => {
@@ -70,6 +88,7 @@ export default function Onboarding({ onComplete, defaultName = '' }) {
           {/* Toggle tabs */}
           <div className="flex border-b border-slate-200">
             <button
+              type="button"
               onClick={() => { setMode('create'); setError(null); }}
               className={`flex-1 py-4 flex items-center justify-center gap-2 text-sm font-semibold transition-colors ${
                 mode === 'create'
@@ -81,6 +100,7 @@ export default function Onboarding({ onComplete, defaultName = '' }) {
               Créer mon restaurant
             </button>
             <button
+              type="button"
               onClick={() => { setMode('join'); setError(null); }}
               className={`flex-1 py-4 flex items-center justify-center gap-2 text-sm font-semibold transition-colors ${
                 mode === 'join'
@@ -132,14 +152,16 @@ export default function Onboarding({ onComplete, defaultName = '' }) {
                   {loading ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Création en cours…
+                      {CREATE_SPACE_HINTS[loadingHintIdx]}
                     </>
                   ) : (
                     'Créer mon espace'
                   )}
                 </button>
                 {loading && (
-                  <p className="text-center text-sm text-slate-400">Cela peut prendre 10 à 15 secondes.</p>
+                  <p className="text-center text-sm text-slate-500">
+                    Quelques secondes selon la connexion — merci de ne pas fermer la page.
+                  </p>
                 )}
               </form>
             )}

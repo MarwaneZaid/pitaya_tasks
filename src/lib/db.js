@@ -8,6 +8,8 @@ function getClient() {
 let cachedRestaurant = null;
 let cachedRestaurantAt = 0;
 const RESTAURANT_CACHE_MS = 10000;
+/** Évite deux requêtes `user_roles` en parallèle (ex. getPlanningConfig + getTasks). */
+let inflightUserRestaurant = null;
 
 export async function getUserRestaurant() {
   const client = getClient();
@@ -22,22 +24,32 @@ export async function getUserRestaurant() {
     return cachedRestaurant;
   }
 
-  const { data: role, error } = await client
-    .from('user_roles')
-    .select('restaurant_id, role, restaurants(name)')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
+  if (inflightUserRestaurant) return inflightUserRestaurant;
 
-  if (error || !role) return null;
+  inflightUserRestaurant = (async () => {
+    try {
+      const { data: role, error } = await client
+        .from('user_roles')
+        .select('restaurant_id, role, restaurants(name)')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
 
-  const restaurant = {
-    id: role.restaurant_id,
-    name: role.restaurants.name,
-    role: role.role
-  };
-  cachedRestaurant = restaurant;
-  cachedRestaurantAt = Date.now();
-  return restaurant;
+      if (error || !role) return null;
+
+      const restaurant = {
+        id: role.restaurant_id,
+        name: role.restaurants.name,
+        role: role.role
+      };
+      cachedRestaurant = restaurant;
+      cachedRestaurantAt = Date.now();
+      return restaurant;
+    } finally {
+      inflightUserRestaurant = null;
+    }
+  })();
+
+  return inflightUserRestaurant;
 }
 
 const RPC_TIMEOUT_MS = 12000;
