@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { flushSync } from 'react-dom';
 import { ChefHat, Store, Lock, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
 
@@ -86,7 +87,10 @@ export default function LoginScreen({ onEnter }) {
         setError(msg || "Une erreur est survenue");
       }
     } finally {
-      setLoading(false);
+      // Commit immédiat pour retirer le spinner avant la mise à jour du parent (perçu latence / automate)
+      flushSync(() => {
+        setLoading(false);
+      });
     }
 
     if (shouldEnter) onEnter();

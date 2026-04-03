@@ -107,6 +107,8 @@ export default function Dashboard({ onResetConfig }) {
   const [planningConfig, setPlanningConfig] = useState(null);
   const [showPlanningSettings, setShowPlanningSettings] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  /** Après login/inscription : attendre la résolution user_roles avant d’afficher le tableau (évite flash + latence perçue). */
+  const [postAuthPending, setPostAuthPending] = useState(false);
   const [onboardingDefaultName, setOnboardingDefaultName] = useState('');
   const [showTeam, setShowTeam] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
@@ -118,26 +120,31 @@ export default function Dashboard({ onResetConfig }) {
       if (supabase) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          setUserName(session.user.email);
-          // Récupérer le nom du restaurant depuis les métadonnées auth (inscrit lors du sign-up)
-          const metaName = session.user.user_metadata?.restaurant_name || '';
-          setOnboardingDefaultName(metaName);
-          const resto = await getUserRestaurant();
-          if (!resto) {
-            setNeedsOnboarding(true);
-            setIsNameSet(true);
-            setLoading(false);
-          } else {
-            setUserRole(resto.role);
-            setNeedsOnboarding(false);
-            setIsNameSet(true);
-            loadTasks();
-            setupRealtimeSync(resto.id);
+          try {
+            setUserName(session.user.email);
+            // Récupérer le nom du restaurant depuis les métadonnées auth (inscrit lors du sign-up)
+            const metaName = session.user.user_metadata?.restaurant_name || '';
+            setOnboardingDefaultName(metaName);
+            const resto = await getUserRestaurant();
+            if (!resto) {
+              setNeedsOnboarding(true);
+              setIsNameSet(true);
+              setLoading(false);
+            } else {
+              setUserRole(resto.role);
+              setNeedsOnboarding(false);
+              setIsNameSet(true);
+              loadTasks();
+              setupRealtimeSync(resto.id);
+            }
+          } finally {
+            setPostAuthPending(false);
           }
           return;
         }
       }
       setIsNameSet(false);
+      setPostAuthPending(false);
       setLoading(false);
     };
     checkSession();
@@ -145,24 +152,30 @@ export default function Dashboard({ onResetConfig }) {
     if (supabase) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session) {
-          setUserName(session.user.email);
-          const metaName = session.user.user_metadata?.restaurant_name || '';
-          setOnboardingDefaultName(metaName);
-          const resto = await getUserRestaurant();
-          if (!resto) {
-            setNeedsOnboarding(true);
-          } else {
-            setUserRole(resto.role);
-            setNeedsOnboarding(false);
-            loadTasks();
-            setupRealtimeSync(resto.id);
+          try {
+            setUserName(session.user.email);
+            const metaName = session.user.user_metadata?.restaurant_name || '';
+            setOnboardingDefaultName(metaName);
+            const resto = await getUserRestaurant();
+            if (!resto) {
+              setNeedsOnboarding(true);
+            } else {
+              setUserRole(resto.role);
+              setNeedsOnboarding(false);
+              loadTasks();
+              setupRealtimeSync(resto.id);
+            }
+            setIsNameSet(true);
+          } finally {
+            // Après onEnter (sync) qui met postAuthPending à true — évite d’écraser trop tôt si le handler finit avant LoginScreen
+            queueMicrotask(() => setPostAuthPending(false));
           }
-          setIsNameSet(true);
         } else {
           setIsNameSet(false);
           setUserName('');
           setUserRole(null);
           setNeedsOnboarding(false);
+          setPostAuthPending(false);
           if (realtimeChannelRef.current) {
             supabase.removeChannel(realtimeChannelRef.current);
             realtimeChannelRef.current = null;
@@ -175,6 +188,12 @@ export default function Dashboard({ onResetConfig }) {
       };
     }
   }, []);
+
+  useEffect(() => {
+    if (!postAuthPending) return undefined;
+    const t = setTimeout(() => setPostAuthPending(false), 15000);
+    return () => clearTimeout(t);
+  }, [postAuthPending]);
 
   const setupRealtimeSync = (restaurantId) => {
     if (!supabase || realtimeChannelRef.current) return;
@@ -357,7 +376,24 @@ export default function Dashboard({ onResetConfig }) {
   };
 
   // ─── Écrans de garde ──────────────────────────────────────────────────────────
-  if (!isNameSet) return <LoginScreen onEnter={() => setIsNameSet(true)} />;
+  if (!isNameSet) {
+    return (
+      <LoginScreen
+        onEnter={() => {
+          setIsNameSet(true);
+          setPostAuthPending(true);
+        }}
+      />
+    );
+  }
+  if (postAuthPending) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-3 p-4">
+        <RefreshCw className="w-8 h-8 animate-spin text-amber-400" aria-hidden />
+        <p className="text-slate-400 text-sm">Connexion…</p>
+      </div>
+    );
+  }
   if (needsOnboarding) return <Onboarding defaultName={onboardingDefaultName} onComplete={() => { setNeedsOnboarding(false); loadTasks(); }} />;
 
   const filtered = getFilteredTasks();
