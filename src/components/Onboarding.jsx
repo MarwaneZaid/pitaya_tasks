@@ -125,7 +125,7 @@ export default function Onboarding({ onComplete, defaultName = '' }) {
               <form onSubmit={handleCreate} className="space-y-6">
                 <div>
                   <p className="text-slate-500 text-sm mb-5">
-                    Vous êtes gérant ou manager ? Créez l'espace de votre établissement. Votre équipe pourra ensuite vous rejoindre avec un code.
+                    <strong className="text-slate-700">Réservé au gérant</strong> : vous créez l’espace du restaurant, les tâches et le planning. Vous partagez ensuite le code d’invitation (Équipe) avec vos managers et l’équipe — ils peuvent aussi arriver depuis l’écran de connexion « Équipe · code ».
                   </p>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Nom de votre restaurant
@@ -171,7 +171,7 @@ export default function Onboarding({ onComplete, defaultName = '' }) {
               <form onSubmit={handleJoin} className="space-y-6">
                 <div>
                   <p className="text-slate-500 text-sm mb-5">
-                    Votre gérant vous a donné un code à 8 caractères ? Entrez-le ici pour rejoindre son équipe automatiquement.
+                    Déjà un compte ? Entrez le code à 8 caractères donné par votre gérant. Sinon, utilisez plutôt l’écran d’accueil → <strong>Équipe · code</strong> pour vous inscrire avec identifiant + code + mot de passe.
                   </p>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Code d'invitation

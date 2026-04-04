@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { ChefHat, Store, Lock, AlertCircle, Loader2 } from 'lucide-react';
+import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
+import { joinRestaurantByCode } from '../lib/db';
 
 // Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
 const AUTH_DOMAIN = 'dailydo.app';
@@ -21,17 +22,22 @@ function emailFromRestaurantName(name, domain = AUTH_DOMAIN) {
   return `${slugFromRestaurantName(name)}@${domain}`;
 }
 
+/** Connexion : gérant qui crée l'espace, ou membre qui se connecte avec son identifiant + code (première fois). */
 export default function LoginScreen({ onEnter }) {
+  /** owner = gérant (nom du restaurant) ; member = équipe (identifiant perso + code à la 1re inscription) */
+  const [flow, setFlow] = useState('owner');
   const [isLogin, setIsLogin] = useState(true);
-  const [restaurantName, setRestaurantName] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const name = restaurantName.trim();
+    const name = identifier.trim();
     if (!name || !password) return;
+    if (flow === 'member' && !isLogin && inviteCode.trim().length < 8) return;
 
     setLoading(true);
     setError(null);
@@ -44,8 +50,47 @@ export default function LoginScreen({ onEnter }) {
 
       const email = emailFromRestaurantName(name);
 
-      if (isLogin) {
-        // Connexion : essayer d'abord le domaine principal, puis legacy
+      if (flow === 'member') {
+        if (isLogin) {
+          let signInError = (await supabase.auth.signInWithPassword({ email, password })).error;
+          if (signInError?.message?.includes('Invalid login credentials')) {
+            const emailLegacy = emailFromRestaurantName(name, AUTH_DOMAIN_LEGACY);
+            signInError = (await supabase.auth.signInWithPassword({ email: emailLegacy, password })).error;
+          }
+          if (signInError) throw signInError;
+          shouldEnter = true;
+        } else {
+          const code = inviteCode.trim().toUpperCase();
+          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                restaurant_name: '',
+                member_display_name: name,
+              },
+            },
+          });
+          if (signUpError) {
+            if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
+              setError('Cet identifiant est déjà pris. Connectez-vous ou choisissez un autre identifiant.');
+              return;
+            }
+            throw signUpError;
+          }
+          if (!signUpData.session) {
+            setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous avec votre identifiant.');
+            return;
+          }
+          try {
+            await joinRestaurantByCode(code);
+          } catch (joinErr) {
+            await supabase.auth.signOut();
+            throw joinErr;
+          }
+          shouldEnter = true;
+        }
+      } else if (isLogin) {
         let signInError = (await supabase.auth.signInWithPassword({ email, password })).error;
         if (signInError?.message?.includes('Invalid login credentials')) {
           const emailLegacy = emailFromRestaurantName(name, AUTH_DOMAIN_LEGACY);
@@ -54,8 +99,6 @@ export default function LoginScreen({ onEnter }) {
         if (signInError) throw signInError;
         shouldEnter = true;
       } else {
-        // Inscription : stocker le nom du restaurant dans les métadonnées
-        // pour le pré-remplir dans l'écran d'onboarding
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -70,12 +113,10 @@ export default function LoginScreen({ onEnter }) {
           }
           throw signUpError;
         }
-        // Confirmation e-mail activée → pas de session tout de suite : ne pas ouvrir le tableau vide
         if (!signUpData.session) {
           setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous.');
           return;
         }
-        // Pas de createRestaurant ici — c'est l'écran Onboarding qui le fera
         shouldEnter = true;
       }
     } catch (err) {
@@ -87,7 +128,6 @@ export default function LoginScreen({ onEnter }) {
         setError(msg || "Une erreur est survenue");
       }
     } finally {
-      // Commit immédiat pour retirer le spinner avant la mise à jour du parent (perçu latence / automate)
       flushSync(() => {
         setLoading(false);
       });
@@ -96,17 +136,67 @@ export default function LoginScreen({ onEnter }) {
     if (shouldEnter) onEnter();
   };
 
+  const switchFlow = (next) => {
+    setFlow(next);
+    setError(null);
+    setInviteCode('');
+  };
+
+  const ownerLabel = isLogin ? 'Nom du restaurant' : 'Nom de votre restaurant';
+  const memberLabel = isLogin ? 'Mon identifiant' : 'Choisissez un identifiant personnel';
+  const idPlaceholder =
+    flow === 'owner' ? 'Ex: Pitaya Lyon' : 'Ex: sophie-cuisine';
+
+  const submitDisabled =
+    loading ||
+    !identifier.trim() ||
+    password.length < 6 ||
+    (flow === 'member' && !isLogin && inviteCode.trim().length < 8);
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500 text-white mb-4">
               <ChefHat className="w-8 h-8" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800">DailyDo</h1>
             <p className="text-slate-500 text-sm mt-1">Tableau de bord partagé</p>
           </div>
+
+          {/* Gérant vs membre */}
+          <div className="flex rounded-xl border border-slate-200 p-1 mb-6 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => switchFlow('owner')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+                flow === 'owner' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Building2 className="w-4 h-4 shrink-0" />
+              Gérant · créer l’espace
+            </button>
+            <button
+              type="button"
+              onClick={() => switchFlow('member')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+                flow === 'member' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Users className="w-4 h-4 shrink-0" />
+              Équipe · code
+            </button>
+          </div>
+
+          {flow === 'member' && (
+            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+              Avec le code partagé par votre gérant : inscrivez-vous une première fois avec identifiant + code, puis
+              reconnectez-vous plus tard avec seulement identifiant et mot de passe. Vous rejoignez en{' '}
+              <strong>employé</strong> : cocher les tâches, pas la config du restaurant. Les droits manager / gérant sont
+              réservés au gérant et aux comptes qu’il délègue.
+            </p>
+          )}
 
           {error && (
             <div className="mb-6 bg-red-50 text-red-600 p-4 rounded-xl flex items-start gap-3 text-sm">
@@ -118,21 +208,37 @@ export default function LoginScreen({ onEnter }) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                {isLogin ? 'Nom du restaurant' : 'Nom de votre restaurant'}
+                {flow === 'owner' ? ownerLabel : memberLabel}
               </label>
               <div className="relative">
                 <Store className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Pitaya Lyon"
-                  value={restaurantName}
-                  onChange={(e) => setRestaurantName(e.target.value)}
+                  placeholder={idPlaceholder}
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-slate-800"
-                  autoComplete="organization"
+                  autoComplete={flow === 'member' ? 'username' : 'organization'}
                 />
               </div>
             </div>
+
+            {flow === 'member' && !isLogin && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Code d’invitation (8 caractères)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: A1B2C3D4"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  maxLength={8}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-xl text-center text-xl font-mono tracking-widest text-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 uppercase"
+                  autoComplete="off"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Mot de passe</label>
@@ -154,13 +260,15 @@ export default function LoginScreen({ onEnter }) {
 
             <button
               type="submit"
-              disabled={loading || !restaurantName.trim() || password.length < 6}
+              disabled={submitDisabled}
               className="w-full py-3 px-4 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
             >
               {loading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : isLogin ? (
                 'Se connecter'
+              ) : flow === 'member' ? (
+                'Créer mon accès et rejoindre'
               ) : (
                 'Continuer →'
               )}
@@ -170,10 +278,19 @@ export default function LoginScreen({ onEnter }) {
           <div className="mt-6 text-center">
             <button
               type="button"
-              onClick={() => { setIsLogin(!isLogin); setError(null); }}
+              onClick={() => {
+                setIsLogin(!isLogin);
+                setError(null);
+              }}
               className="text-sm text-slate-500 hover:text-amber-600 font-medium"
             >
-              {isLogin ? "Nouveau restaurant ? Créer mon espace" : "Déjà un espace ? Se connecter"}
+              {isLogin
+                ? flow === 'owner'
+                  ? 'Nouveau restaurant ? Créer mon espace'
+                  : 'Première connexion ? Créer mon accès avec le code'
+                : flow === 'owner'
+                  ? 'Déjà un espace ? Se connecter'
+                  : 'Déjà un compte ? Se connecter'}
             </button>
           </div>
 

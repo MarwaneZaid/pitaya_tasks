@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, Copy, Check, UserPlus, LogIn, Loader2, ShieldCheck, User } from 'lucide-react';
+import { X, Users, Copy, Check, LogIn, Loader2, User } from 'lucide-react';
 import { getInviteCode, getTeamMembers, joinRestaurantByCode, getUserRestaurant } from '../lib/db';
 
 export default function TeamModal({ isOpen, onClose, onJoined }) {
@@ -21,13 +21,17 @@ export default function TeamModal({ isOpen, onClose, onJoined }) {
         setMyRole(resto.role);
         if (resto.role === 'owner' || resto.role === 'manager') {
           const code = await getInviteCode();
-          setInviteCode(code);
+          setInviteCode(code ?? '');
           const team = await getTeamMembers();
-          setMembers(team);
+          setMembers(Array.isArray(team) ? team : []);
           setTab('invite');
         } else {
           setTab('join');
         }
+      } else {
+        // Session sans rôle (ex. bord de course) : proposer au moins le flux « rejoindre »
+        setMyRole(null);
+        setTab('join');
       }
     };
     init();
@@ -140,7 +144,9 @@ export default function TeamModal({ isOpen, onClose, onJoined }) {
                         <User className="w-4 h-4 text-blue-600" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-slate-700 font-mono">{m.user_id.substring(0, 8)}...</p>
+                        <p className="text-sm font-medium text-slate-700 font-mono">
+                          {(m.user_id ? `${String(m.user_id).slice(0, 8)}…` : '—')}
+                        </p>
                         <p className="text-xs text-slate-400">{m.role}</p>
                       </div>
                     </div>
