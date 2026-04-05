@@ -223,6 +223,10 @@ BEGIN
     RAISE EXCEPTION 'Non authentifié';
   END IF;
 
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_user_id) THEN
+    RAISE EXCEPTION 'Utilisateur Auth introuvable en base. Déconnectez-vous et reconnectez-vous.';
+  END IF;
+
   SELECT ur.restaurant_id, ur.role INTO v_existing_role
   FROM public.user_roles ur
   WHERE ur.user_id = v_user_id
@@ -269,6 +273,9 @@ BEGIN
   v_uid := auth.uid();
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Non authentifié';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_uid) THEN
+    RAISE EXCEPTION 'Utilisateur Auth introuvable en base. Déconnectez-vous et reconnectez-vous.';
   END IF;
   IF p_code IS NULL OR length(trim(p_code)) < 8 THEN
     RAISE EXCEPTION 'Code d''invitation invalide.';

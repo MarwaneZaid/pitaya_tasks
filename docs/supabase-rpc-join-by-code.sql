@@ -23,6 +23,9 @@ BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'Non authentifié';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = v_uid) THEN
+    RAISE EXCEPTION 'Utilisateur Auth introuvable en base. Déconnectez-vous et reconnectez-vous.';
+  END IF;
   IF p_code IS NULL OR length(trim(p_code)) < 8 THEN
     RAISE EXCEPTION 'Code d''invitation invalide.';
   END IF;

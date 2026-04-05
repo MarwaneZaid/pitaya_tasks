@@ -5,6 +5,30 @@ function getClient() {
   return getSupabase() || supabase;
 }
 
+/** Valide le JWT auprès du serveur Auth (évite les RPC avec une session locale orpheline ou un mauvais projet). */
+async function assertAuthUserSynced(client) {
+  const { data: { user }, error } = await client.auth.getUser();
+  if (error || !user?.id) {
+    throw new Error('Session invalide ou expirée. Déconnectez-vous et reconnectez-vous.');
+  }
+  return user;
+}
+
+function rethrowMappedDbError(err) {
+  const raw = err?.message || String(err);
+  if (raw.includes('user_roles_user_id_fkey')) {
+    throw new Error(
+      "Votre compte n'est pas reconnu par la base (session désynchronisée ou mauvais projet Supabase). Déconnectez-vous, videz les données du site pour ce domaine si besoin, puis reconnectez-vous."
+    );
+  }
+  if (raw.includes('Utilisateur Auth introuvable')) {
+    throw new Error(
+      "Compte non trouvé côté serveur. Déconnectez-vous et reconnectez-vous : l'application doit utiliser le même projet Supabase que votre inscription."
+    );
+  }
+  throw err instanceof Error ? err : new Error(raw);
+}
+
 let cachedRestaurant = null;
 let cachedRestaurantAt = 0;
 const RESTAURANT_CACHE_MS = 10000;
@@ -66,6 +90,7 @@ export async function createRestaurant(name) {
   if (!client) throw new Error("Supabase n'est pas configuré.");
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error("Non authentifié");
+  await assertAuthUserSynced(client);
 
   // Si l’utilisateur est déjà lié en « employé » (ex. flux Équipe·code), la RPC Postgres
   // retourne le resto existant sans créer ni promouvoir → il reste employé. On bloque avec un message clair.
@@ -106,7 +131,7 @@ export async function createRestaurant(name) {
     cachedRestaurantAt = 0;
     return { id: data?.id };
   } catch (e) {
-    throw e;
+    rethrowMappedDbError(e);
   }
 }
 
@@ -340,6 +365,7 @@ export async function joinRestaurantByCode(code) {
   if (!client) throw new Error("Supabase n'est pas configuré.");
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error('Non authentifié');
+  await assertAuthUserSynced(client);
 
   const normalized = (code && String(code).trim()) || '';
   if (normalized.length < 8) {
@@ -356,7 +382,7 @@ export async function joinRestaurantByCode(code) {
         "Fonction Supabase manquante. Exécutez docs/supabase-dailydo-complete-fix.sql dans le SQL Editor Supabase."
       );
     }
-    throw new Error(error.message || "Code d'invitation invalide.");
+    rethrowMappedDbError(error);
   }
 
   if (!data?.id) {
