@@ -20,7 +20,16 @@ import {
   supabase,
   clearSupabaseCredentials,
 } from './lib/storage-supabase';
-import { getUserRestaurant, getTasks, saveTask, saveTasks, deleteTask, getPlanningConfig, savePlanningConfig } from './lib/db';
+import {
+  getUserRestaurant,
+  getTasks,
+  saveTask,
+  saveTasks,
+  deleteTask,
+  getPlanningConfig,
+  savePlanningConfig,
+  clearRestaurantCache,
+} from './lib/db';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
@@ -113,33 +122,52 @@ export default function Dashboard({ onResetConfig }) {
   const [showTeam, setShowTeam] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const realtimeChannelRef = useRef(null);
+  /** Évite double getUserRestaurant + loadTasks quand getSession() et onAuthStateChange arrivent à la suite (latence reconnexion). */
+  const sessionHydrateBurstRef = useRef({ uid: null, at: 0 });
+  const loadTasksInFlightRef = useRef(null);
 
   // ─── Auth & session ──────────────────────────────────────────────────────────
   useEffect(() => {
+    const shouldSkipDuplicateHydrate = (session) => {
+      const uid = session.user.id;
+      const now = Date.now();
+      const { uid: prev, at } = sessionHydrateBurstRef.current;
+      if (prev === uid && now - at < 1600) {
+        queueMicrotask(() => setPostAuthPending(false));
+        return true;
+      }
+      sessionHydrateBurstRef.current = { uid, at: now };
+      return false;
+    };
+
+    const hydrateSession = async (session) => {
+      if (shouldSkipDuplicateHydrate(session)) return;
+      try {
+        setUserName(session.user.email);
+        const metaName = session.user.user_metadata?.restaurant_name || '';
+        setOnboardingDefaultName(metaName);
+        const resto = await getUserRestaurant();
+        if (!resto) {
+          setNeedsOnboarding(true);
+          setIsNameSet(true);
+          setLoading(false);
+        } else {
+          setUserRole(resto.role);
+          setNeedsOnboarding(false);
+          setIsNameSet(true);
+          loadTasks();
+          setupRealtimeSync(resto.id);
+        }
+      } finally {
+        queueMicrotask(() => setPostAuthPending(false));
+      }
+    };
+
     const checkSession = async () => {
       if (supabase) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          try {
-            setUserName(session.user.email);
-            // Récupérer le nom du restaurant depuis les métadonnées auth (inscrit lors du sign-up)
-            const metaName = session.user.user_metadata?.restaurant_name || '';
-            setOnboardingDefaultName(metaName);
-            const resto = await getUserRestaurant();
-            if (!resto) {
-              setNeedsOnboarding(true);
-              setIsNameSet(true);
-              setLoading(false);
-            } else {
-              setUserRole(resto.role);
-              setNeedsOnboarding(false);
-              setIsNameSet(true);
-              loadTasks();
-              setupRealtimeSync(resto.id);
-            }
-          } finally {
-            setPostAuthPending(false);
-          }
+          await hydrateSession(session);
           return;
         }
       }
@@ -152,25 +180,9 @@ export default function Dashboard({ onResetConfig }) {
     if (supabase) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session) {
-          try {
-            setUserName(session.user.email);
-            const metaName = session.user.user_metadata?.restaurant_name || '';
-            setOnboardingDefaultName(metaName);
-            const resto = await getUserRestaurant();
-            if (!resto) {
-              setNeedsOnboarding(true);
-            } else {
-              setUserRole(resto.role);
-              setNeedsOnboarding(false);
-              loadTasks();
-              setupRealtimeSync(resto.id);
-            }
-            setIsNameSet(true);
-          } finally {
-            // Après onEnter (sync) qui met postAuthPending à true — évite d’écraser trop tôt si le handler finit avant LoginScreen
-            queueMicrotask(() => setPostAuthPending(false));
-          }
+          await hydrateSession(session);
         } else {
+          sessionHydrateBurstRef.current = { uid: null, at: 0 };
           setIsNameSet(false);
           setUserName('');
           setUserRole(null);
@@ -225,54 +237,61 @@ export default function Dashboard({ onResetConfig }) {
 
   // ─── Chargement des tâches ────────────────────────────────────────────────────
   const loadTasks = async () => {
-    setLoading(true);
-    try {
-      const [currentConfig, dbTasks] = await Promise.all([
-        supabase ? getPlanningConfig() : Promise.resolve(null),
-        supabase ? getTasks() : Promise.resolve([]),
-      ]);
-      if (!currentConfig) { setTasks([]); return; }
+    if (loadTasksInFlightRef.current) {
+      return loadTasksInFlightRef.current;
+    }
+    loadTasksInFlightRef.current = (async () => {
+      setLoading(true);
+      try {
+        const [currentConfig, dbTasks] = await Promise.all([
+          supabase ? getPlanningConfig() : Promise.resolve(null),
+          supabase ? getTasks() : Promise.resolve([]),
+        ]);
+        if (!currentConfig) { setTasks([]); return; }
 
-      let list = dbTasks || [];
-      const isFirstTime = (!currentConfig.siteName && currentConfig.planning.lundi.length === 0);
-      setPlanningConfig(currentConfig);
+        let list = dbTasks || [];
+        const isFirstTime = (!currentConfig.siteName && currentConfig.planning.lundi.length === 0);
+        setPlanningConfig(currentConfig);
 
-      const today = getTodayDate();
-      const { tasks: updated, changed, removedTaskIds } = applyAnnexeRollover(list, today);
-      if (changed) {
-        list = updated;
-        await Promise.all(removedTaskIds.map((id) => deleteTask(id)));
-        await Promise.all(list.map(t => saveTask(t)));
-      }
+        const today = getTodayDate();
+        const { tasks: updated, changed, removedTaskIds } = applyAnnexeRollover(list, today);
+        if (changed) {
+          list = updated;
+          await Promise.all(removedTaskIds.map((id) => deleteTask(id)));
+          await Promise.all(list.map(t => saveTask(t)));
+        }
 
-      if (!isFirstTime && currentConfig) {
-        const jour = JOURS[new Date().getDay()];
-        const tasksDuJour = (currentConfig.planning?.[jour] || []).filter(t => t.title && String(t.title).trim());
-        if (tasksDuJour.length > 0) {
-          const existing = new Set(list.filter(t => !t.completed || t.scheduledFor === today).map(t => t.title));
-          const toAdd = tasksDuJour.filter(t => !existing.has(t.title.trim()));
-          if (toAdd.length > 0) {
-            const newTasks = toAdd.map(item => ({
-              title: (item.title || '').trim(), category: 'nettoyage',
-              priority: item.priority || 'moyenne', taskType: TASK_TYPE_QUOTIDIEN,
-              scheduledFor: today, assignedTo: '', deadline: '', completed: false,
-              createdBy: userName || 'Système',
-            }));
-            const savedTasks = await saveTasks(newTasks);
-            list.push(...savedTasks);
+        if (!isFirstTime && currentConfig) {
+          const jour = JOURS[new Date().getDay()];
+          const tasksDuJour = (currentConfig.planning?.[jour] || []).filter(t => t.title && String(t.title).trim());
+          if (tasksDuJour.length > 0) {
+            const existing = new Set(list.filter(t => !t.completed || t.scheduledFor === today).map(t => t.title));
+            const toAdd = tasksDuJour.filter(t => !existing.has(t.title.trim()));
+            if (toAdd.length > 0) {
+              const newTasks = toAdd.map(item => ({
+                title: (item.title || '').trim(), category: 'nettoyage',
+                priority: item.priority || 'moyenne', taskType: TASK_TYPE_QUOTIDIEN,
+                scheduledFor: today, assignedTo: '', deadline: '', completed: false,
+                createdBy: userName || 'Système',
+              }));
+              const savedTasks = await saveTasks(newTasks);
+              list.push(...savedTasks);
+            }
           }
         }
-      }
 
-      setTasks([...list]);
-      setLastUpdate(new Date());
-      if (isFirstTime) setShowPlanningSettings(true);
-    } catch (e) {
-      console.error(e);
-      setTasks([]);
-    } finally {
-      setLoading(false);
-    }
+        setTasks([...list]);
+        setLastUpdate(new Date());
+        if (isFirstTime) setShowPlanningSettings(true);
+      } catch (e) {
+        console.error(e);
+        setTasks([]);
+      } finally {
+        setLoading(false);
+        loadTasksInFlightRef.current = null;
+      }
+    })();
+    return loadTasksInFlightRef.current;
   };
 
   // ─── Actions sur les tâches ───────────────────────────────────────────────────
@@ -349,6 +368,8 @@ export default function Dashboard({ onResetConfig }) {
   };
 
   const handleSignOut = async () => {
+    clearRestaurantCache();
+    sessionHydrateBurstRef.current = { uid: null, at: 0 };
     if (supabase) await supabase.auth.signOut();
     else { localStorage.removeItem(USER_NAME_KEY); setIsNameSet(false); setUserName(''); }
   };
@@ -359,6 +380,8 @@ export default function Dashboard({ onResetConfig }) {
       : 'Reconfigurer la base de données ? Vous serez déconnecté.';
     if (!confirm(msg)) return;
     if (supabase) supabase.auth.signOut();
+    clearRestaurantCache();
+    sessionHydrateBurstRef.current = { uid: null, at: 0 };
     clearSupabaseCredentials();
     if (onResetConfig) onResetConfig();
   };

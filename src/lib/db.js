@@ -11,6 +11,13 @@ const RESTAURANT_CACHE_MS = 10000;
 /** Évite deux requêtes `user_roles` en parallèle (ex. getPlanningConfig + getTasks). */
 let inflightUserRestaurant = null;
 
+/** À appeler après déconnexion pour ne pas réutiliser le restaurant du compte précédent (latence / mauvais rôle). */
+export function clearRestaurantCache() {
+  cachedRestaurant = null;
+  cachedRestaurantAt = 0;
+  inflightUserRestaurant = null;
+}
+
 export async function getUserRestaurant() {
   const client = getClient();
   if (!client) return null;
@@ -59,6 +66,18 @@ export async function createRestaurant(name) {
   if (!client) throw new Error("Supabase n'est pas configuré.");
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error("Non authentifié");
+
+  // Si l’utilisateur est déjà lié en « employé » (ex. flux Équipe·code), la RPC Postgres
+  // retourne le resto existant sans créer ni promouvoir → il reste employé. On bloque avec un message clair.
+  const prior = await getUserRestaurant();
+  if (prior) {
+    if (prior.role === 'owner') {
+      return { id: prior.id };
+    }
+    throw new Error(
+      "Ce compte est déjà membre d’un restaurant en tant qu’employé. Vous ne pouvez pas créer un nouvel espace gérant avec ce compte. Utilisez l’onglet « Gérant · créer l’espace » avec un autre identifiant, ou demandez à votre gérant de vous promouvoir."
+    );
+  }
 
   const rpcPromise = client.rpc('create_restaurant', { p_name: name });
   const timeoutPromise = new Promise((_, reject) =>
