@@ -44,10 +44,11 @@ Ajoutez ces variables d'environnement sur Vercel/Netlify avant de déployer :
 ### 2. Exécuter le script SQL
 
 1. Dans Supabase : **SQL Editor** → **New query**
-2. Copiez tout le contenu du fichier `supabase-setup.sql`
+2. Copiez tout le contenu de **`docs/supabase-dailydo-complete-fix.sql`** (schéma, RLS, RPC `create_restaurant` + `join_restaurant_by_invite_code`, realtime sur les tâches). Alternative historique : `supabase-setup.sql` à la racine — vérifiez alors que les RPC et le join par code sont bien déployés (voir le fichier `docs/` ci-dessus).
 3. Cliquez **Run**
 
-> Si la dernière ligne provoque une erreur, ignorez-la et désactivez la confirmation email manuellement dans **Authentication → Email** → décochez "Enable email confirmations".
+> **Authentication → Providers** : activez **Anonymous** si vous utilisez le flux « équipe + code » sans e-mail.  
+> Si une ligne en fin de `supabase-setup.sql` provoque une erreur, ignorez-la et désactivez la confirmation e-mail dans **Authentication → Email** → décochez « Enable email confirmations ».
 
 ### 3. Récupérer les credentials
 

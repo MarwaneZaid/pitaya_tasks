@@ -81,14 +81,24 @@ export async function createRestaurant(name) {
 
   const rpcPromise = client.rpc('create_restaurant', { p_name: name });
   const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Délai dépassé. Vérifiez votre connexion ou exécutez le script SQL create_restaurant dans Supabase.")), RPC_TIMEOUT_MS)
+    setTimeout(
+      () =>
+        reject(
+          new Error(
+            "Délai dépassé. Vérifiez votre connexion ou exécutez docs/supabase-dailydo-complete-fix.sql dans le SQL Editor Supabase."
+          )
+        ),
+      RPC_TIMEOUT_MS
+    )
   );
   try {
     const result = await Promise.race([rpcPromise, timeoutPromise]);
     const { data, error } = result;
     if (error) {
       if (error.message?.includes('function') && error.message?.includes('does not exist')) {
-        throw new Error("Fonction Supabase manquante. Exécutez docs/supabase-fix-restaurants-rls.sql dans le SQL Editor Supabase.");
+        throw new Error(
+          "Fonction Supabase manquante. Exécutez docs/supabase-dailydo-complete-fix.sql dans le SQL Editor Supabase."
+        );
       }
       throw error;
     }
@@ -229,7 +239,7 @@ export async function saveTask(task) {
     completed_by: task.completedBy || null
   };
 
-  // Si l'ID est un nombre (nouveau via Date.now()), on l'omet pour laisser UUID générer, 
+  // Si l'ID est un nombre (nouveau via Date.now()), on l'omet pour laisser UUID générer,
   // sinon on l'update.
   if (typeof task.id === 'string' && task.id.length > 20) {
     dbTask.id = task.id;
@@ -331,37 +341,30 @@ export async function joinRestaurantByCode(code) {
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error('Non authentifié');
 
-  // Chercher le restaurant dont l'ID commence par ce code
-  const { data: restos, error } = await client
-    .from('restaurants')
-    .select('id, name')
-    .ilike('id', `${code.toLowerCase()}%`);
-
-  if (error || !restos || restos.length === 0) {
+  const normalized = (code && String(code).trim()) || '';
+  if (normalized.length < 8) {
     throw new Error("Code d'invitation invalide.");
   }
 
-  const resto = restos[0];
+  const { data, error } = await client.rpc('join_restaurant_by_invite_code', {
+    p_code: normalized,
+  });
 
-  // Vérifier si déjà membre
-  const { data: existing } = await client
-    .from('user_roles')
-    .select('id')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
+  if (error) {
+    if (error.message?.includes('function') && error.message?.includes('does not exist')) {
+      throw new Error(
+        "Fonction Supabase manquante. Exécutez docs/supabase-dailydo-complete-fix.sql dans le SQL Editor Supabase."
+      );
+    }
+    throw new Error(error.message || "Code d'invitation invalide.");
+  }
 
-  if (existing) throw new Error("Vous êtes déjà membre d'un restaurant.");
+  if (!data?.id) {
+    throw new Error("Code d'invitation invalide.");
+  }
 
-  // Rejoindre comme employé
-  const { error: joinError } = await client
-    .from('user_roles')
-    .insert({
-      user_id: session.user.id,
-      restaurant_id: resto.id,
-      role: 'employee'
-    });
+  cachedRestaurant = null;
+  cachedRestaurantAt = 0;
 
-  if (joinError) throw joinError;
-
-  return resto;
+  return { id: data.id, name: data.name };
 }
