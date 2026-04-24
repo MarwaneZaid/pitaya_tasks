@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS public.tasks (
 -- Active RLS sur tasks
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 
+-- Index de performance (chargement par utilisateur/restaurant)
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON public.user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_restaurant_id ON public.user_roles(restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_restaurant_id ON public.tasks(restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_restaurant_scheduled_for ON public.tasks(restaurant_id, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_planning_templates_restaurant_id ON public.planning_templates(restaurant_id);
+
 
 -- ========================================================================================
 -- POLITIQUES DE SECURITE (RLS) - ISOLATION DES DONNEES (MULTI-TENANT)

@@ -35,6 +35,25 @@ const RESTAURANT_CACHE_MS = 10000;
 /** Évite deux requêtes `user_roles` en parallèle (ex. getPlanningConfig + getTasks). */
 let inflightUserRestaurant = null;
 
+async function fetchRestaurantByUserId(client, userId) {
+  const { data: role, error } = await client
+    .from('user_roles')
+    .select('restaurant_id, role, restaurants(name)')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error || !role) return null;
+
+  const restaurant = {
+    id: role.restaurant_id,
+    name: role.restaurants.name,
+    role: role.role
+  };
+  cachedRestaurant = restaurant;
+  cachedRestaurantAt = Date.now();
+  return restaurant;
+}
+
 /** À appeler après déconnexion pour ne pas réutiliser le restaurant du compte précédent (latence / mauvais rôle). */
 export function clearRestaurantCache() {
   cachedRestaurant = null;
@@ -59,22 +78,7 @@ export async function getUserRestaurant() {
 
   inflightUserRestaurant = (async () => {
     try {
-      const { data: role, error } = await client
-        .from('user_roles')
-        .select('restaurant_id, role, restaurants(name)')
-        .eq('user_id', session.user.id)
-        .maybeSingle();
-
-      if (error || !role) return null;
-
-      const restaurant = {
-        id: role.restaurant_id,
-        name: role.restaurants.name,
-        role: role.role
-      };
-      cachedRestaurant = restaurant;
-      cachedRestaurantAt = Date.now();
-      return restaurant;
+      return fetchRestaurantByUserId(client, session.user.id);
     } finally {
       inflightUserRestaurant = null;
     }
@@ -90,11 +94,15 @@ export async function createRestaurant(name) {
   if (!client) throw new Error("Supabase n'est pas configuré.");
   const { data: { session } } = await client.auth.getSession();
   if (!session) throw new Error("Non authentifié");
-  await assertAuthUserSynced(client);
+  const userId = session.user.id;
+
+  const [, prior] = await Promise.all([
+    assertAuthUserSynced(client),
+    fetchRestaurantByUserId(client, userId),
+  ]);
 
   // Si l’utilisateur est déjà lié en « employé » (ex. flux Équipe·code), la RPC Postgres
   // retourne le resto existant sans créer ni promouvoir → il reste employé. On bloque avec un message clair.
-  const prior = await getUserRestaurant();
   if (prior) {
     if (prior.role === 'owner') {
       return { id: prior.id };
@@ -328,6 +336,15 @@ export async function deleteTask(taskId) {
   const client = getClient();
   if (!client) return;
   await client.from('tasks').delete().eq('id', taskId);
+}
+
+export async function deleteTasks(taskIds) {
+  if (!Array.isArray(taskIds) || taskIds.length === 0) return;
+  const ids = taskIds.filter((id) => typeof id === 'string' && id.length > 0);
+  if (ids.length === 0) return;
+  const client = getClient();
+  if (!client) return;
+  await client.from('tasks').delete().in('id', ids);
 }
 
 /**

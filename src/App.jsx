@@ -11,8 +11,7 @@ export default function App() {
     return (
       <SetupScreen
         onComplete={() => {
-          // Laisser le client Supabase s'initialiser avant d'afficher le Dashboard
-          setTimeout(() => setConfigured(true), 150);
+          setConfigured(true);
         }}
       />
     );

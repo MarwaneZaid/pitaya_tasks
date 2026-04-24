@@ -64,6 +64,13 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.planning_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 
+-- ── Performance : index critiques pour auth + chargement dashboard ────────────
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON public.user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_restaurant_id ON public.user_roles(restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_restaurant_id ON public.tasks(restaurant_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_restaurant_scheduled_for ON public.tasks(restaurant_id, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_planning_templates_restaurant_id ON public.planning_templates(restaurant_id);
+
 -- ── RLS : restaurants ───────────────────────────────────────────────────────
 
 DROP POLICY IF EXISTS "restaurants_select" ON public.restaurants;

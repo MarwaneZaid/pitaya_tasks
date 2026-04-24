@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { flushSync } from 'react-dom';
 import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
 import { joinRestaurantByCode } from '../lib/db';
@@ -7,6 +6,8 @@ import { joinRestaurantByCode } from '../lib/db';
 // Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
 const AUTH_DOMAIN = 'dailydo.app';
 const AUTH_DOMAIN_LEGACY = 'restaurant.dailydo.app';
+const AUTH_DOMAIN_PREF_KEY = 'dailydo_auth_domain_pref';
+const AUTH_TIMEOUT_MS = 12000;
 
 function slugFromRestaurantName(name) {
   return name
@@ -22,6 +23,39 @@ function emailFromRestaurantName(name, domain = AUTH_DOMAIN) {
   return `${slugFromRestaurantName(name)}@${domain}`;
 }
 
+function readPreferredAuthDomain() {
+  try {
+    const value = localStorage.getItem(AUTH_DOMAIN_PREF_KEY);
+    if (value === AUTH_DOMAIN || value === AUTH_DOMAIN_LEGACY) return value;
+  } catch (_) {}
+  return AUTH_DOMAIN;
+}
+
+function savePreferredAuthDomain(domain) {
+  try {
+    localStorage.setItem(AUTH_DOMAIN_PREF_KEY, domain);
+  } catch (_) {}
+}
+
+function isInvalidCredentialsError(error) {
+  const msg = error?.message || '';
+  return msg.includes('Invalid login credentials') || msg.includes('invalid_credentials');
+}
+
+async function withTimeout(promise, message = 'Délai dépassé. Vérifiez votre connexion.', timeoutMs = AUTH_TIMEOUT_MS) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /** Connexion : gérant qui crée l'espace, ou membre qui se connecte avec son identifiant + code (première fois). */
 export default function LoginScreen({ onEnter }) {
   /** owner = gérant (nom du restaurant) ; member = équipe (identifiant perso + code à la 1re inscription) */
@@ -32,6 +66,37 @@ export default function LoginScreen({ onEnter }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  React.useEffect(() => {
+    if (!supabase) return;
+    // Réchauffe la session Auth pour réduire la latence perçue du premier submit.
+    supabase.auth.getSession().catch(() => {});
+  }, []);
+
+  const signInWithFallbackDomains = async (name, userPassword) => {
+    const preferred = readPreferredAuthDomain();
+    const secondary = preferred === AUTH_DOMAIN ? AUTH_DOMAIN_LEGACY : AUTH_DOMAIN;
+    const attempts = [preferred, secondary];
+
+    let lastError = null;
+    for (const domain of attempts) {
+      const email = emailFromRestaurantName(name, domain);
+      const { error: signInError } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password: userPassword }),
+        'Connexion trop lente. Réessayez dans quelques secondes.'
+      );
+      if (!signInError) {
+        savePreferredAuthDomain(domain);
+        return;
+      }
+      lastError = signInError;
+      if (!isInvalidCredentialsError(signInError)) {
+        throw signInError;
+      }
+    }
+
+    if (lastError) throw lastError;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,29 +113,25 @@ export default function LoginScreen({ onEnter }) {
         throw new Error("Supabase n'est pas configuré. Vérifiez les variables d'environnement.");
       }
 
-      const email = emailFromRestaurantName(name);
-
       if (flow === 'member') {
         if (isLogin) {
-          let signInError = (await supabase.auth.signInWithPassword({ email, password })).error;
-          if (signInError?.message?.includes('Invalid login credentials')) {
-            const emailLegacy = emailFromRestaurantName(name, AUTH_DOMAIN_LEGACY);
-            signInError = (await supabase.auth.signInWithPassword({ email: emailLegacy, password })).error;
-          }
-          if (signInError) throw signInError;
+          await signInWithFallbackDomains(name, password);
           shouldEnter = true;
         } else {
           const code = inviteCode.trim().toUpperCase();
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                restaurant_name: '',
-                member_display_name: name,
+          const { data: signUpData, error: signUpError } = await withTimeout(
+            supabase.auth.signUp({
+              email: emailFromRestaurantName(name),
+              password,
+              options: {
+                data: {
+                  restaurant_name: '',
+                  member_display_name: name,
+                },
               },
-            },
-          });
+            }),
+            'Inscription trop lente. Vérifiez votre connexion et réessayez.'
+          );
           if (signUpError) {
             if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
               setError('Cet identifiant est déjà pris. Connectez-vous ou choisissez un autre identifiant.');
@@ -78,6 +139,7 @@ export default function LoginScreen({ onEnter }) {
             }
             throw signUpError;
           }
+          savePreferredAuthDomain(AUTH_DOMAIN);
           if (!signUpData.session) {
             setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous avec votre identifiant.');
             return;
@@ -91,21 +153,19 @@ export default function LoginScreen({ onEnter }) {
           shouldEnter = true;
         }
       } else if (isLogin) {
-        let signInError = (await supabase.auth.signInWithPassword({ email, password })).error;
-        if (signInError?.message?.includes('Invalid login credentials')) {
-          const emailLegacy = emailFromRestaurantName(name, AUTH_DOMAIN_LEGACY);
-          signInError = (await supabase.auth.signInWithPassword({ email: emailLegacy, password })).error;
-        }
-        if (signInError) throw signInError;
+        await signInWithFallbackDomains(name, password);
         shouldEnter = true;
       } else {
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { restaurant_name: name },
-          },
-        });
+        const { data: signUpData, error: signUpError } = await withTimeout(
+          supabase.auth.signUp({
+            email: emailFromRestaurantName(name),
+            password,
+            options: {
+              data: { restaurant_name: name },
+            },
+          }),
+          'Création du compte trop lente. Vérifiez votre connexion et réessayez.'
+        );
         if (signUpError) {
           if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
             setError('Un restaurant avec ce nom existe déjà. Connectez-vous avec votre mot de passe.');
@@ -113,6 +173,7 @@ export default function LoginScreen({ onEnter }) {
           }
           throw signUpError;
         }
+        savePreferredAuthDomain(AUTH_DOMAIN);
         if (!signUpData.session) {
           setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous.');
           return;
@@ -128,9 +189,7 @@ export default function LoginScreen({ onEnter }) {
         setError(msg || "Une erreur est survenue");
       }
     } finally {
-      flushSync(() => {
-        setLoading(false);
-      });
+      setLoading(false);
     }
 
     if (shouldEnter) onEnter();

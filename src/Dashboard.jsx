@@ -26,6 +26,7 @@ import {
   saveTask,
   saveTasks,
   deleteTask,
+  deleteTasks,
   getPlanningConfig,
   savePlanningConfig,
   clearRestaurantCache,
@@ -212,7 +213,9 @@ export default function Dashboard({ onResetConfig }) {
     const channel = supabase
       .channel(`tasks:${restaurantId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `restaurant_id=eq.${restaurantId}` }, () => {
-        loadTasks();
+        // Realtime: ne relance pas le pipeline complet (planning + rollover + upserts),
+        // on rafraîchit seulement les tâches pour garder une UI fluide.
+        loadTasks({ mode: 'realtime' });
       })
       .subscribe();
     realtimeChannelRef.current = channel;
@@ -236,13 +239,21 @@ export default function Dashboard({ onResetConfig }) {
   }, [tasks, loading, reminderDismissed]);
 
   // ─── Chargement des tâches ────────────────────────────────────────────────────
-  const loadTasks = async () => {
+  const loadTasks = async ({ mode = 'full' } = {}) => {
+    const isRealtime = mode === 'realtime';
     if (loadTasksInFlightRef.current) {
       return loadTasksInFlightRef.current;
     }
     loadTasksInFlightRef.current = (async () => {
-      setLoading(true);
+      if (!isRealtime) setLoading(true);
       try {
+        if (isRealtime) {
+          const dbTasks = supabase ? await getTasks() : [];
+          setTasks([...(dbTasks || [])]);
+          setLastUpdate(new Date());
+          return;
+        }
+
         const [currentConfig, dbTasks] = await Promise.all([
           supabase ? getPlanningConfig() : Promise.resolve(null),
           supabase ? getTasks() : Promise.resolve([]),
@@ -257,8 +268,10 @@ export default function Dashboard({ onResetConfig }) {
         const { tasks: updated, changed, removedTaskIds } = applyAnnexeRollover(list, today);
         if (changed) {
           list = updated;
-          await Promise.all(removedTaskIds.map((id) => deleteTask(id)));
-          await Promise.all(list.map(t => saveTask(t)));
+          await deleteTasks(removedTaskIds);
+          if (list.length > 0) {
+            list = await saveTasks(list);
+          }
         }
 
         if (!isFirstTime && currentConfig) {
@@ -287,7 +300,7 @@ export default function Dashboard({ onResetConfig }) {
         console.error(e);
         setTasks([]);
       } finally {
-        setLoading(false);
+        if (!isRealtime) setLoading(false);
         loadTasksInFlightRef.current = null;
       }
     })();
@@ -357,14 +370,14 @@ export default function Dashboard({ onResetConfig }) {
   const clearCompleted = async () => {
     const completedTasks = tasks.filter(t => t.completed);
     setTasks(tasks.filter(t => !t.completed));
-    await Promise.all(completedTasks.map(t => deleteTask(t.id)));
+    await deleteTasks(completedTasks.map((t) => t.id));
   };
 
   const resetAll = async () => {
     if (!confirm('Voulez-vous vraiment supprimer TOUTES les tâches ?')) return;
     const all = [...tasks];
     setTasks([]);
-    await Promise.all(all.map(t => deleteTask(t.id)));
+    await deleteTasks(all.map((t) => t.id));
   };
 
   const handleSignOut = async () => {
@@ -497,7 +510,7 @@ export default function Dashboard({ onResetConfig }) {
 
               <span className="text-slate-500 text-sm hidden sm:inline">{displayName(userName)}</span>
 
-              <button onClick={loadTasks} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Actualiser">
+              <button onClick={() => loadTasks()} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Actualiser">
                 <RefreshCw className="w-5 h-5" />
               </button>
 
