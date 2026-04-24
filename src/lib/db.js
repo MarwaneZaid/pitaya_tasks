@@ -16,6 +16,18 @@ async function assertAuthUserSynced(client) {
 
 function rethrowMappedDbError(err) {
   const raw = err?.message || String(err);
+  const normalized = String(raw).toLowerCase();
+
+  if (
+    normalized.includes('load failed') ||
+    normalized.includes('failed to fetch') ||
+    normalized.includes('networkerror') ||
+    normalized.includes('network request failed')
+  ) {
+    throw new Error(
+      "Connexion au serveur impossible. Vérifiez Internet, l'URL Supabase et la clé anon, puis réessayez."
+    );
+  }
   if (raw.includes('user_roles_user_id_fkey')) {
     throw new Error(
       "Votre compte n'est pas reconnu par la base (session désynchronisée ou mauvais projet Supabase). Déconnectez-vous, videz les données du site pour ce domaine si besoin, puis reconnectez-vous."
