@@ -42,6 +42,20 @@ function isInvalidCredentialsError(error) {
   return msg.includes('Invalid login credentials') || msg.includes('invalid_credentials');
 }
 
+function mapAuthErrorMessage(error) {
+  const raw = error?.message || String(error || '');
+  const normalized = raw.toLowerCase();
+  if (
+    normalized.includes('failed to fetch') ||
+    normalized.includes('load failed') ||
+    normalized.includes('networkerror') ||
+    normalized.includes('network request failed')
+  ) {
+    return "Connexion au serveur impossible. Vérifiez Internet, l'URL Supabase et la clé anon, puis réessayez.";
+  }
+  return raw || "Une erreur est survenue";
+}
+
 async function withTimeout(promise, message = 'Délai dépassé. Vérifiez votre connexion.', timeoutMs = AUTH_TIMEOUT_MS) {
   let timeoutId;
   try {
@@ -186,7 +200,7 @@ export default function LoginScreen({ onEnter }) {
       if (msg.includes('rate limit') || msg.includes('rate_limit')) {
         setError('Trop de tentatives. Réessayez dans quelques minutes.');
       } else {
-        setError(msg || "Une erreur est survenue");
+        setError(mapAuthErrorMessage(err));
       }
     } finally {
       setLoading(false);
