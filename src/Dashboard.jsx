@@ -317,27 +317,29 @@ export default function Dashboard({ onResetConfig }) {
   const toggleTask = async (id) => {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
+    const previous = [...tasks];
     const toggled = {
       ...task, completed: !task.completed,
       completedAt: !task.completed ? new Date().toISOString() : null,
       completedBy: !task.completed ? userName : null,
     };
-    setTasks(tasks.map(t => t.id === id ? toggled : t));
+    setTasks(previous.map(t => t.id === id ? toggled : t));
     try {
       await saveTask(toggled);
     } catch (e) {
       console.error(e);
-      setTasks(tasks); // rollback
+      setTasks(previous);
     }
   };
 
   const deleteTaskAction = async (id) => {
+    const previous = [...tasks];
     setTasks(tasks.filter(t => t.id !== id));
     try {
       await deleteTask(id);
     } catch (e) {
       console.error(e);
-      setTasks(tasks);
+      setTasks(previous);
     }
   };
 

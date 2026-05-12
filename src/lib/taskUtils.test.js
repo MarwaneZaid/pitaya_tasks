@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { displayName } from './taskUtils';
 
 /**
  * Logique de filtrage des tâches (répliquée depuis Dashboard pour tester)
@@ -67,5 +68,18 @@ describe('taskUtils (filtrage)', () => {
     const result = getFilteredTasks(tasks, 'my-tasks', 'Alice', TASK_TYPE_ANNEXE);
     expect(result).toHaveLength(2);
     expect(result.every((t) => t.assignedTo === 'Alice')).toBe(true);
+  });
+});
+
+describe('displayName', () => {
+  it('affiche un libellé pour les e-mails DailyDo', () => {
+    expect(displayName('chez-pierre@dailydo.app')).toBe('Chez pierre');
+    expect(displayName('slug@restaurant.dailydo.app')).toBe('Slug');
+    expect(displayName('team@dailydo-saas.app')).toBe('Team');
+  });
+
+  it('masque les URLs et les valeurs vides', () => {
+    expect(displayName('https://x.supabase.co')).toBe('Équipe');
+    expect(displayName('')).toBe('');
   });
 });
