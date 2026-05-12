@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Plus, Trash2, CheckCircle2, Users, ChefHat, AlertCircle,
   RefreshCw, Wifi, Edit, User, LogOut, Database
@@ -38,7 +38,9 @@ import TeamModal from './components/TeamModal';
 import StatsBar from './components/StatsBar';
 import PlanningCard from './components/PlanningCard';
 import TaskItem from './components/TaskItem';
+import TaskTypeSelector from './components/TaskTypeSelector';
 import { isUrgent, isOverdue, displayName } from './lib/taskUtils';
+import { useToast } from './context/ToastContext.jsx';
 
 function getTodayDate() {
   return new Date().toISOString().slice(0, 10);
@@ -54,52 +56,9 @@ const ROLE_LABELS = {
 function canManage(role) { return role === 'owner' || role === 'manager'; }
 function canAdmin(role)  { return role === 'owner'; }
 
-// ─── Sélecteur visuel de type de tâche ────────────────────────────────────────
-function TaskTypeSelector({ value, onChange }) {
-  const types = [
-    {
-      id: TASK_TYPE_QUOTIDIEN,
-      icon: '🔴', label: 'Quotidien', desc: 'Obligatoire du jour',
-      active: 'bg-red-500 text-white border-red-500',
-      inactive: 'bg-white text-slate-600 border-slate-200 hover:border-red-300',
-    },
-    {
-      id: TASK_TYPE_ANNEXE,
-      icon: '🟠', label: 'Annexe', desc: 'Reportée si non faite',
-      active: 'bg-orange-500 text-white border-orange-500',
-      inactive: 'bg-white text-slate-600 border-slate-200 hover:border-orange-300',
-    },
-    {
-      id: TASK_TYPE_SEMAINE,
-      icon: '🟢', label: 'Semaine', desc: 'À faire cette semaine',
-      active: 'bg-green-500 text-white border-green-500',
-      inactive: 'bg-white text-slate-600 border-slate-200 hover:border-green-300',
-    },
-  ];
-
-  return (
-    <div className="col-span-full">
-      <label className="block text-sm font-medium text-slate-600 mb-2">Type de tâche</label>
-      <div className="grid grid-cols-3 gap-2">
-        {types.map(t => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => onChange(t.id)}
-            className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border-2 transition-all text-center ${value === t.id ? t.active : t.inactive}`}
-          >
-            <span className="text-xl">{t.icon}</span>
-            <span className="text-xs font-semibold leading-tight">{t.label}</span>
-            <span className={`text-xs leading-tight ${value === t.id ? 'text-white/80' : 'text-slate-400'}`}>{t.desc}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Dashboard principal ───────────────────────────────────────────────────────
 export default function Dashboard({ onResetConfig }) {
+  const { showToast } = useToast();
   const [tasks, setTasks] = useState([]);
   const [newTask, setNewTask] = useState({
     title: '', category: 'cuisine', priority: 'moyenne',
@@ -108,7 +67,6 @@ export default function Dashboard({ onResetConfig }) {
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const [showEndOfDayReminder, setShowEndOfDayReminder] = useState(false);
   const [filter, setFilter] = useState('all');
-  const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0, urgent: 0 });
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState(null); // 'owner' | 'manager' | 'employee'
   const [isNameSet, setIsNameSet] = useState(false);
@@ -221,12 +179,11 @@ export default function Dashboard({ onResetConfig }) {
     realtimeChannelRef.current = channel;
   };
 
-  // ─── Stats ───────────────────────────────────────────────────────────────────
-  useEffect(() => {
+  const stats = useMemo(() => {
     const completed = tasks.filter(t => t.completed).length;
-    const pending   = tasks.filter(t => !t.completed).length;
-    const urgent    = tasks.filter(t => t.priority === 'haute' && !t.completed).length;
-    setStats({ total: tasks.length, completed, pending, urgent });
+    const pending = tasks.filter(t => !t.completed).length;
+    const urgent = tasks.filter(t => t.priority === 'haute' && !t.completed).length;
+    return { total: tasks.length, completed, pending, urgent };
   }, [tasks]);
 
   // ─── Rappel fin de journée ────────────────────────────────────────────────────
@@ -299,6 +256,12 @@ export default function Dashboard({ onResetConfig }) {
       } catch (e) {
         console.error(e);
         setTasks([]);
+        if (!isRealtime) {
+          showToast({
+            message: 'Impossible de charger les tâches. Vérifiez la connexion et la configuration Supabase.',
+            variant: 'error',
+          });
+        }
       } finally {
         if (!isRealtime) setLoading(false);
         loadTasksInFlightRef.current = null;
@@ -317,18 +280,25 @@ export default function Dashboard({ onResetConfig }) {
       setTasks(prev => [...prev, savedTask]);
       setNewTask({ title: '', category: 'cuisine', priority: 'moyenne', taskType: TASK_TYPE_ANNEXE, assignedTo: '', deadline: '', scheduledFor: '' });
       setShowAddTask(false);
+      showToast({ message: 'Tâche ajoutée.', variant: 'success' });
     } catch (e) {
       console.error(e);
-      alert("Erreur lors de l'ajout.");
+      showToast({ message: "Erreur lors de l'ajout de la tâche.", variant: 'error' });
     }
   };
 
   const addWeeklyTasks = async () => {
     const toAddTemplate = planningConfig?.annexes || [];
-    if (toAddTemplate.length === 0) { alert("Aucune tâche annexe configurée."); return; }
+    if (toAddTemplate.length === 0) {
+      showToast({ message: 'Aucune tâche annexe configurée dans le planning.', variant: 'info' });
+      return;
+    }
     const existing = new Set(tasks.map(t => t.title));
     const toAdd = toAddTemplate.filter(t => t.title && String(t.title).trim() && !existing.has((t.title || '').trim()));
-    if (toAdd.length === 0) { alert('Toutes les tâches hebdomadaires sont déjà dans la liste.'); return; }
+    if (toAdd.length === 0) {
+      showToast({ message: 'Toutes les tâches hebdomadaires sont déjà dans la liste.', variant: 'info' });
+      return;
+    }
     const today = getTodayDate();
     const newTasks = toAdd.map(item => ({
       title: (item.title || '').trim(), category: 'nettoyage', priority: item.priority || 'moyenne',
@@ -337,7 +307,11 @@ export default function Dashboard({ onResetConfig }) {
     try {
       const added = await saveTasks(newTasks);
       setTasks(prev => [...prev, ...added]);
-    } catch (e) { console.error(e); }
+      showToast({ message: `${added.length} tâche(s) hebdomadaire(s) ajoutée(s).`, variant: 'success' });
+    } catch (e) {
+      console.error(e);
+      showToast({ message: 'Erreur lors de l\'ajout des tâches hebdomadaires.', variant: 'error' });
+    }
   };
 
   const toggleTask = async (id) => {
@@ -369,15 +343,29 @@ export default function Dashboard({ onResetConfig }) {
 
   const clearCompleted = async () => {
     const completedTasks = tasks.filter(t => t.completed);
+    if (completedTasks.length === 0) return;
+    const previous = [...tasks];
     setTasks(tasks.filter(t => !t.completed));
-    await deleteTasks(completedTasks.map((t) => t.id));
+    try {
+      await deleteTasks(completedTasks.map((t) => t.id));
+    } catch (e) {
+      console.error(e);
+      setTasks(previous);
+      showToast({ message: 'Erreur lors de la suppression des tâches terminées.', variant: 'error' });
+    }
   };
 
   const resetAll = async () => {
     if (!confirm('Voulez-vous vraiment supprimer TOUTES les tâches ?')) return;
     const all = [...tasks];
     setTasks([]);
-    await deleteTasks(all.map((t) => t.id));
+    try {
+      await deleteTasks(all.map((t) => t.id));
+    } catch (e) {
+      console.error(e);
+      setTasks(all);
+      showToast({ message: 'Erreur : les tâches n\'ont pas été supprimées.', variant: 'error' });
+    }
   };
 
   const handleSignOut = async () => {
@@ -424,7 +412,13 @@ export default function Dashboard({ onResetConfig }) {
   }
   if (postAuthPending) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-3 p-4">
+      <div
+        id="app-main"
+        className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-3 p-4"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
         <RefreshCw className="w-8 h-8 animate-spin text-amber-400" aria-hidden />
         <p className="text-slate-400 text-sm">Connexion…</p>
       </div>
@@ -447,7 +441,7 @@ export default function Dashboard({ onResetConfig }) {
 
   // ─── Rendu ────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div id="app-main" className="min-h-screen bg-slate-100">
       <div className="max-w-4xl mx-auto p-4 pb-8">
 
         {/* Rappel fin de journée */}
@@ -458,6 +452,7 @@ export default function Dashboard({ onResetConfig }) {
               <strong>Rappel fin de journée</strong> : {stats.pending} tâche{stats.pending > 1 ? 's' : ''} non réalisée{stats.pending > 1 ? 's' : ''}.
             </span>
             <button
+              type="button"
               onClick={() => { setShowEndOfDayReminder(false); setReminderDismissed(true); }}
               className="shrink-0 rounded-lg bg-amber-200 px-3 py-1.5 text-sm font-medium hover:bg-amber-300"
             >
@@ -473,7 +468,11 @@ export default function Dashboard({ onResetConfig }) {
               <Wifi className="w-4 h-4 text-slate-500 shrink-0" />
               <strong>Liste locale uniquement.</strong> Configurez la base de données pour synchroniser avec votre équipe.
             </span>
-            <button onClick={handleResetConfig} className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600">
+            <button
+              type="button"
+              onClick={handleResetConfig}
+              className="shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
+            >
               Configurer
             </button>
           </div>
@@ -510,40 +509,70 @@ export default function Dashboard({ onResetConfig }) {
 
               <span className="text-slate-500 text-sm hidden sm:inline">{displayName(userName)}</span>
 
-              <button onClick={() => loadTasks()} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Actualiser">
-                <RefreshCw className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={() => loadTasks()}
+                className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
+                title="Actualiser"
+                aria-label="Actualiser la liste des tâches"
+              >
+                <RefreshCw className="w-5 h-5" aria-hidden />
               </button>
 
               {/* Équipe (manager+) */}
               {isManager && (
-                <button onClick={() => setShowTeam(true)} className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100" title="Mon équipe">
-                  <Users className="w-5 h-5" />
+                <button
+                  type="button"
+                  onClick={() => setShowTeam(true)}
+                  className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100"
+                  title="Mon équipe"
+                  aria-label="Ouvrir la gestion d'équipe"
+                >
+                  <Users className="w-5 h-5" aria-hidden />
                 </button>
               )}
 
               {/* Planning (owner seulement) */}
               {isOwner && (
-                <button onClick={() => setShowPlanningSettings(true)} className="p-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100" title="Planning">
-                  <Edit className="w-5 h-5" />
+                <button
+                  type="button"
+                  onClick={() => setShowPlanningSettings(true)}
+                  className="p-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100"
+                  title="Planning"
+                  aria-label="Ouvrir les paramètres du planning"
+                >
+                  <Edit className="w-5 h-5" aria-hidden />
                 </button>
               )}
 
               {/* Reset (owner seulement) */}
               {isOwner && (
-                <button onClick={resetAll} className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
+                <button type="button" onClick={resetAll} className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
                   Réinitialiser
                 </button>
               )}
 
               {/* Déconnexion */}
-              <button onClick={handleSignOut} className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" title="Déconnexion">
-                <LogOut className="w-5 h-5" />
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
+                title="Déconnexion"
+                aria-label="Se déconnecter"
+              >
+                <LogOut className="w-5 h-5" aria-hidden />
               </button>
 
               {/* Reconfigurer DB (owner seulement) */}
               {isOwner && (
-                <button onClick={handleResetConfig} className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200" title="Reconfigurer la base de données">
-                  <Database className="w-4 h-4" />
+                <button
+                  type="button"
+                  onClick={handleResetConfig}
+                  className="p-2 rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  title="Reconfigurer la base de données"
+                  aria-label="Reconfigurer la base de données"
+                >
+                  <Database className="w-4 h-4" aria-hidden />
                 </button>
               )}
             </div>
@@ -585,8 +614,11 @@ export default function Dashboard({ onResetConfig }) {
           {isManager ? (
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
               <button
+                type="button"
                 onClick={() => setShowAddTask(!showAddTask)}
                 className="w-full flex items-center justify-between p-4 md:p-5 hover:bg-slate-50 transition-colors text-left"
+                aria-expanded={showAddTask}
+                aria-controls="new-task-panel"
               >
                 <span className="flex items-center gap-2 font-semibold text-slate-800">
                   <Plus className="w-5 h-5 text-amber-500" />
@@ -596,7 +628,7 @@ export default function Dashboard({ onResetConfig }) {
               </button>
 
               {showAddTask && (
-                <div className="border-t border-slate-100 p-4 md:p-5">
+                <div id="new-task-panel" className="border-t border-slate-100 p-4 md:p-5">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {/* Titre */}
                     <input
@@ -655,13 +687,15 @@ export default function Dashboard({ onResetConfig }) {
                     {/* Boutons */}
                     <div className="col-span-full flex gap-2">
                       <button
+                        type="button"
                         onClick={addTask}
                         disabled={!newTask.title.trim()}
                         className="flex-1 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
                       >
-                        <Plus className="w-5 h-5" /> Ajouter la tâche
+                        <Plus className="w-5 h-5" aria-hidden /> Ajouter la tâche
                       </button>
                       <button
+                        type="button"
                         onClick={() => setShowAddTask(false)}
                         className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-colors"
                       >
@@ -692,8 +726,10 @@ export default function Dashboard({ onResetConfig }) {
                                      'bg-slate-700 text-white';
               return (
                 <button
+                  type="button"
                   key={id}
                   onClick={() => setFilter(id)}
+                  aria-pressed={isActive}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive ? activeClass : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
                   }`}
@@ -703,7 +739,7 @@ export default function Dashboard({ onResetConfig }) {
               );
             })}
             {isManager && stats.completed > 0 && (
-              <button onClick={clearCompleted} className="ml-auto px-3 py-1.5 text-sm text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
+              <button type="button" onClick={clearCompleted} className="ml-auto px-3 py-1.5 text-sm text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
                 Effacer terminées
               </button>
             )}
@@ -711,9 +747,14 @@ export default function Dashboard({ onResetConfig }) {
 
           {/* ── Liste des tâches ──────────────────────────────────────────── */}
           {loading ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500">
-              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
-              Chargement...
+            <div
+              className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500"
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" aria-hidden />
+              Chargement des tâches…
             </div>
           ) : sorted.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">

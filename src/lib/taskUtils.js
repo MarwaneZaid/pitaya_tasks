@@ -16,7 +16,12 @@ export function displayName(value) {
   if (!value) return '';
   const s = String(value).trim();
   if (s.startsWith('http://') || s.startsWith('https://')) return 'Équipe';
-  if (s.includes('@') && (s.endsWith('@dailydo.app') || s.endsWith('@restaurant.dailydo.app'))) {
+  if (
+    s.includes('@') &&
+    (s.endsWith('@dailydo.app') ||
+      s.endsWith('@restaurant.dailydo.app') ||
+      s.endsWith('@dailydo-saas.app'))
+  ) {
     const local = s.slice(0, s.indexOf('@')).replace(/-/g, ' ');
     return local ? local.charAt(0).toUpperCase() + local.slice(1) : s;
   }

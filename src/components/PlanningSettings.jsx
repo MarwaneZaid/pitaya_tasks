@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Save, X } from 'lucide-react';
+import { useToast } from '../context/ToastContext.jsx';
 import { JOURS } from '../config/planning';
 import { TASK_TYPE_QUOTIDIEN, TASK_TYPE_SEMAINE, TASK_TYPE_ANNEXE } from '../config/constants';
 import { getPlanningConfig, savePlanningConfig } from '../lib/db';
@@ -13,6 +14,7 @@ const DEFAULT_PLANNING = {
 };
 
 export default function PlanningSettings({ isOpen, onClose, onSave }) {
+  const { showToast } = useToast();
   const [config, setConfig] = useState(DEFAULT_PLANNING);
   const [activeTab, setActiveTab] = useState('general');
   const [loading, setLoading] = useState(true);
@@ -46,8 +48,12 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
       await savePlanningConfig(config);
       onSave(config);
       onClose();
+      showToast({ message: 'Planning enregistré.', variant: 'success' });
     } catch (e) {
-      alert('Erreur lors de la sauvegarde de la configuration.');
+      showToast({
+        message: 'Erreur lors de la sauvegarde du planning. Vérifiez la connexion et vos droits.',
+        variant: 'error',
+      });
     } finally {
       setSaving(false);
     }

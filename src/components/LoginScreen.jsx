@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
 import { joinRestaurantByCode } from '../lib/db';
+import { APP_PUBLIC_ORIGIN } from '../config/constants';
 
 // Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
 const AUTH_DOMAIN = 'dailydo.app';
@@ -227,7 +228,7 @@ export default function LoginScreen({ onEnter }) {
     (flow === 'member' && !isLogin && inviteCode.trim().length < 8);
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+    <div id="app-main" className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-6">
@@ -368,7 +369,7 @@ export default function LoginScreen({ onEnter }) {
           </div>
 
           <p className="mt-8 text-xs text-slate-400 text-center">
-            dailydo.app — gestion centralisée pour vos équipes.
+            {APP_PUBLIC_ORIGIN.replace(/^https?:\/\//, '')} — gestion centralisée pour vos équipes.
           </p>
         </div>
       </div>

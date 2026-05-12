@@ -1,6 +1,6 @@
 # DailyDo — Tableau de bord partagé pour restaurants
 
-**Site : [dailydo.app](https://dailydo.app)** (à brancher sur Vercel comme domaine personnalisé une fois le DNS configuré).
+**Site : [www.dailydo-saas.app](https://www.dailydo-saas.app)** (domaine de production ; `VITE_APP_ORIGIN` sur Vercel doit correspondre).
 
 Application de gestion de tâches en temps réel pour équipes de restaurant. Un backend Supabase peut servir tous les établissements ; chaque restaurant est isolé dans la base (droits et données).
 
@@ -31,6 +31,8 @@ Ajoutez ces variables d'environnement sur Vercel/Netlify avant de déployer :
 - `VITE_SUPABASE_URL` → URL de votre projet Supabase
 - `VITE_SUPABASE_ANON_KEY` → Clé anon publique
 
+**Checklist détaillée** (Auth Supabase, redirect URLs, Node 20, redeploy) : [docs/guides/DEPLOY_CHECKLIST.md](docs/guides/DEPLOY_CHECKLIST.md).
+
 ---
 
 ## Guide de configuration pour chaque restaurant
@@ -44,7 +46,7 @@ Ajoutez ces variables d'environnement sur Vercel/Netlify avant de déployer :
 ### 2. Exécuter le script SQL
 
 1. Dans Supabase : **SQL Editor** → **New query**
-2. Copiez tout le contenu de **`docs/supabase-dailydo-complete-fix.sql`** (schéma, RLS, RPC `create_restaurant` + `join_restaurant_by_invite_code`, realtime sur les tâches). Alternative historique : `supabase-setup.sql` à la racine — vérifiez alors que les RPC et le join par code sont bien déployés (voir le fichier `docs/` ci-dessus).
+2. Copiez tout le contenu de **`docs/supabase-dailydo-complete-fix.sql`** (schéma, RLS, RPC `create_restaurant` + `join_restaurant_by_invite_code`, realtime sur les tâches). Ensuite, optionnel mais recommandé si vous avez une table `app_storage` : **`docs/supabase-security-hardening.sql`**. Alternative historique : `supabase-setup.sql` à la racine — vérifiez alors que les RPC et le join par code sont bien déployés (voir le fichier `docs/` ci-dessus).
 3. Cliquez **Run**
 
 > **Authentication → Providers** : activez **Anonymous** si vous utilisez le flux « équipe + code » sans e-mail.  
@@ -93,10 +95,12 @@ Entrez l'URL et la clé → **Tester la connexion** → **Lancer l'application**
 
 ```bash
 npm install
+cp .env.example .env   # puis renseignez VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY (mode SaaS local)
 npm run dev
-# Ouvre http://localhost:5173
-# Entrez vos credentials Supabase au premier lancement
+# http://localhost:5173 — sans .env valide, l’écran de configuration Supabase s’affiche au premier lancement
 ```
+
+Utilisez **Node 20+** (`nvm use` lit `.nvmrc`).
 
 ```bash
 npm test   # Lancer les tests
@@ -113,5 +117,6 @@ src/
   components/       # SetupScreen, LoginScreen, Onboarding, TaskItem, ...
   Dashboard.jsx     # Tableau de bord principal avec gestion des rôles
   App.jsx           # Point d'entrée (setup flow → login → dashboard)
-supabase-setup.sql  # Script SQL à exécuter dans Supabase (une seule fois)
+docs/supabase-dailydo-complete-fix.sql  # Script SQL recommandé (RLS, RPC, realtime)
+supabase-setup.sql  # Alternative historique à la racine
 ```

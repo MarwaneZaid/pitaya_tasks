@@ -1,12 +1,14 @@
-# Déployer Pitaya Tasks sur Vercel
+# Déployer DailyDo sur Vercel
 
-Ce guide explique comment mettre l’app en ligne avec **Vercel** pour que tous les managers puissent y accéder (téléphone et ordinateur).
+Ce guide explique comment mettre l’app en ligne avec **Vercel** pour que toute l’équipe y accède (téléphone et ordinateur).
+
+**Checklist à cocher** (variables `VITE_*`, Auth Supabase, redirect URLs, Node 20) : [DEPLOY_CHECKLIST.md](./DEPLOY_CHECKLIST.md).
 
 ---
 
 ## C’est quoi Vercel ?
 
-**Vercel** est une plateforme qui héberge des sites et applications web. Tu lui donnes ton projet (depuis GitHub ou en upload), elle le compile et te donne une **URL publique** (ex. `https://pitaya-tasks.vercel.app`).
+**Vercel** est une plateforme qui héberge des sites et applications web. Tu lui donnes ton projet (depuis GitHub ou en upload), elle le compile et te donne une **URL publique** (ex. `https://dailydo.vercel.app`).
 
 - **Gratuit** pour des projets personnels / petites équipes
 - Pas de serveur à gérer : tu déploies, le site est en ligne
@@ -18,7 +20,7 @@ Ce guide explique comment mettre l’app en ligne avec **Vercel** pour que tous 
 
 ### 1. Avoir le projet sur GitHub
 
-Le code doit être sur GitHub (par ex. **MarwaneZaid/pitaya_tasks**).
+Le code doit être sur GitHub (ton fork ou le dépôt d’équipe **App_tasks** / DailyDo).
 
 - Si ce n’est pas fait : pousse le projet avec `git push -u origin main`.
 
@@ -30,8 +32,8 @@ Le code doit être sur GitHub (par ex. **MarwaneZaid/pitaya_tasks**).
 ### 3. Créer un nouveau projet
 
 1. Une fois connecté, clique sur **Add New…** → **Project**.
-2. Tu vois la liste de tes dépôts GitHub. Choisis **pitaya_tasks** (ou le nom de ton repo).
-3. Si le repo n’apparaît pas : **Import Third-Party Git Repository** et colle l’URL du repo (ex. `https://github.com/MarwaneZaid/pitaya_tasks`).
+2. Choisis le dépôt **App_tasks** / **DailyDo** (ou importe l’URL Git du repo).
+3. Si le repo n’apparaît pas : **Import Third-Party Git Repository** et colle l’URL du dépôt.
 
 ### 4. Paramètres du projet (laisser par défaut)
 
@@ -42,20 +44,19 @@ Vercel détecte automatiquement un projet **Vite** :
 - **Output Directory** : `dist`
 - **Install Command** : `npm install`
 
-Tu n’as **pas besoin** de remplir de **Environment Variables** pour faire fonctionner l’app (la config Supabase se fait dans l’app, via l’icône engrenage).
+Pour le **mode SaaS** (aucune saisie d’URL/clé côté utilisateur), ajoutez **`VITE_SUPABASE_URL`** et **`VITE_SUPABASE_ANON_KEY`** dans **Settings → Environment Variables**, puis redeployez. Sinon, la config Supabase peut se faire dans l’app au premier lancement (sans variables sur Vercel).
 
 ### 5. Déployer
 
 - Clique sur **Deploy**.
 - Vercel clone le repo, installe les dépendances, lance `npm run build`, et met le contenu de `dist` en ligne.
-- À la fin tu obtiens une URL du type : **`https://pitaya-tasks-xxxxx.vercel.app`** (ou un nom que tu as choisi).
+- À la fin tu obtiens une URL du type : **`https://dailydo-xxxxx.vercel.app`** (ou un nom que tu as choisi).
 
 ### 6. Ouvrir l’app et configurer la synchronisation
 
 - Ouvre le **lien Vercel** dans ton navigateur.
-- Entre ton nom pour accéder au tableau de bord.
-- Clique sur l’**icône engrenage** (⚙️) et configure **Supabase** (voir la section ci‑dessous).
-- Envoie **ce même lien** à tes managers : ils l’ouvrent sur leur téléphone ou ordinateur.
+- Si les variables **`VITE_SUPABASE_*`** sont définies au build, l’app va directement au flux de connexion. Sinon, configure **Supabase** au premier lancement (voir [SUPABASE.md](./SUPABASE.md)).
+- Envoie **ce même lien** à l’équipe.
 
 ---
 
@@ -68,18 +69,16 @@ Pour que les tâches soient synchronisées entre tous les managers (téléphones
 1. Va sur **https://supabase.com** et connecte-toi (ou crée un compte avec ton email ou GitHub).
 2. Clique sur **New project**.
 3. Renseigne :
-   - **Name** : par ex. `pitaya-tasks`
+   - **Name** : par ex. `dailydo-prod`
    - **Database Password** : choisis un mot de passe (note-le au cas où)
    - **Region** : une proche de toi (ex. West EU)
 4. Clique sur **Create new project** et attends 1–2 minutes que le projet soit créé.
 
-### Étape B : Créer la table (SQL)
+### Étape B : Créer les tables (SQL)
 
-1. Dans le projet Supabase, clique sur **SQL Editor** dans le menu de gauche.
-2. Clique sur **New query**.
-3. Ouvre le fichier **`supabase-setup.sql`** à la racine du projet Pitaya Tasks (dans ton ordinateur ou sur GitHub).
-4. Copie **tout** son contenu et colle-le dans l’éditeur SQL Supabase.
-5. Clique sur **Run** (ou Ctrl+Entrée). Tu dois voir un message du type « Success ».
+1. Dans le projet Supabase : **SQL Editor** → **New query**.
+2. Copie tout le contenu de **`docs/supabase-dailydo-complete-fix.sql`** (recommandé) ou, en alternative, `supabase-setup.sql` à la racine.
+3. **Run**. Vérifie le message de succès.
 
 ### Étape C : Récupérer l’URL et la clé anon
 
@@ -91,15 +90,11 @@ Pour que les tâches soient synchronisées entre tous les managers (téléphones
 4. Clique sur **Copy** à côté de **Project URL** et garde-la (bloc-notes ou autre).
 5. Clique sur **Copy** à côté de la clé **anon public** et garde-la aussi.
 
-### Étape D : Coller dans l’app Pitaya Tasks
+### Étape D : Variables Vercel ou collage dans l’app
 
-1. Ouvre **ton app** (le lien Vercel, ex. `https://pitaya-tasks-xxx.vercel.app`).
-2. Connecte-toi avec ton nom si besoin.
-3. En haut à droite, clique sur l’**icône engrenage** (⚙️). Une fenêtre **« Synchronisation équipe »** s’ouvre.
-4. Dans le champ **URL Supabase** : colle l’URL copiée (ex. `https://xxxxx.supabase.co`).
-5. Dans le champ **Clé anon (publique)** : colle la clé anon copiée (ex. `eyJhbGciOiJIUzI1NiIs...`).
-6. Clique sur **Enregistrer**. La page se recharge.
-7. Tu dois voir apparaître le badge vert **« Sync équipe »** en haut à droite : la synchronisation est active.
+**Recommandé (SaaS)** : dans Vercel → **Settings → Environment Variables**, ajoute `VITE_SUPABASE_URL` et `VITE_SUPABASE_ANON_KEY`, puis **Redeploy**.
+
+**Alternative** : ouvre l’app (lien Vercel) → premier lancement → écran de configuration → colle l’URL et la clé anon → enregistrer. Le badge **Sync active** confirme la connexion.
 
 Dès que c’est fait, tous les managers qui ouvrent **le même lien** (sur téléphone ou ordinateur) voient et modifient les **mêmes tâches** en temps réel.
 
@@ -109,7 +104,7 @@ Dès que c’est fait, tous les managers qui ouvrent **le même lien** (sur tél
 
 - **Modifier le code** : tu travailles en local, tu fais `git push origin main`. Si le projet Vercel est relié à ce repo, Vercel refait un déploiement automatique et l’URL affiche la nouvelle version.
 - **Voir les déploiements** : sur Vercel, dans ton projet → onglet **Deployments**.
-- **Changer le nom de l’URL** : **Settings** → **Domains** pour ajouter un sous-domaine personnalisé (ex. `pitaya.vercel.app` si dispo).
+- **Changer le nom de l’URL** : **Settings** → **Domains** pour ajouter un domaine personnalisé (ex. `www.dailydo-saas.app`).
 
 ---
 
@@ -117,7 +112,7 @@ Dès que c’est fait, tous les managers qui ouvrent **le même lien** (sur tél
 
 | Étape | Action |
 |-------|--------|
-| 1 | Code sur GitHub (ex. `MarwaneZaid/pitaya_tasks`) |
+| 1 | Code sur GitHub (dépôt DailyDo / App_tasks) |
 | 2 | Compte sur vercel.com (connexion GitHub) |
 | 3 | Add New → Project → importer le repo |
 | 4 | Deploy (garder les options par défaut) |

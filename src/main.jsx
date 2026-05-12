@@ -4,6 +4,7 @@ import { initSupabaseStorage, isSupabaseConfigured } from './lib/storage-supabas
 import './lib/storage-polyfill.js';
 import './index.css';
 import App from './App.jsx';
+import { ToastProvider } from './context/ToastContext.jsx';
 
 // Données partagées : Supabase = tous les managers (téléphones inclus) ; sinon localStorage = même appareil
 try {
@@ -16,6 +17,8 @@ try {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </StrictMode>
 );

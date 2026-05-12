@@ -120,15 +120,27 @@ create policy "tasks_all" on public.tasks
   using (restaurant_id in (select public.my_restaurant_ids()))
   with check (restaurant_id in (select public.my_restaurant_ids()));
 
--- app_storage : accès pour tout utilisateur connecté (stockage partagé global)
+-- app_storage : uniquement les comptes authentifiés (plus d’accès anon)
+drop policy if exists "Allow anon read and write for app_storage" on public.app_storage;
 drop policy if exists "app_storage_all" on public.app_storage;
-create policy "app_storage_all" on public.app_storage
-  for all using (auth.uid() is not null);
+drop policy if exists "app_storage_authenticated_all" on public.app_storage;
+
+revoke all on table public.app_storage from anon;
+grant select, insert, update, delete on table public.app_storage to authenticated;
+
+create policy "app_storage_authenticated_all" on public.app_storage
+  for all
+  to authenticated
+  using (true)
+  with check (true);
 
 -- 3. (Optionnel) Trigger updated_at pour planning_templates
 -- --------------------------------------------------------
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger
+language plpgsql
+set search_path = public
+as $$
 begin
   new.updated_at = now();
   return new;
