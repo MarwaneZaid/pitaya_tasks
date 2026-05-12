@@ -23,7 +23,7 @@ Utilisez cette liste pour une mise en production **sans surprise**. Cochez au fu
   - **Redirect URLs** : ajoutez **toutes** les origines utiles, une par ligne :  
     - Production : `https://www.dailydo-saas.app`, `https://dailydo-saas.app` (apex si utilisé)  
     - Préprod Vercel : `https://<nom>-<team>.vercel.app`  
-    - Développement : `http://localhost:5173`, `http://127.0.0.1:5173`
+    - Développement : `http://localhost:5173`, `http://localhost:5174`, `http://127.0.0.1:5173`, `http://127.0.0.1:5174` (selon le port affiché par `npm run dev`)
 - Si vous utilisez le flux **équipe / code d’invitation** sans e-mail classique : **Authentication → Providers** → activer **Anonymous**.
 - Pour des tests rapides sans valider la boîte mail : **Authentication → Providers → Email** → désactiver **Confirm email** (à réactiver en prod stricte si besoin).
 - Optionnel : variable `VITE_APP_ORIGIN` dans le build (voir `.env.example`) — doit correspondre à une **Redirect URL** autorisée si votre flux d’auth en dépend.

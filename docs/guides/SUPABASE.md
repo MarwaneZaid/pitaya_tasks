@@ -19,7 +19,7 @@ Vous configurez **une seule fois** sur le déploiement Vercel. Ensuite vous part
    Optionnel : **`VITE_APP_ORIGIN`** (voir `.env.example`) — à déclarer aussi dans Supabase **Authentication → URL configuration → Redirect URLs**.
 5. **Redeploy** le projet. Partager l’URL de l’app (ex. `https://www.dailydo-saas.app` ou `https://<projet>.vercel.app`).
 
-**Authentication** : activer **Anonymous** si vous utilisez le flux équipe par code ; ajouter toutes les URLs d’app (prod, preview Vercel, `http://localhost:5173`) dans **Redirect URLs**.
+**Authentication** : activer **Anonymous** si vous utilisez le flux équipe par code ; activer **Allow new users to sign up** pour la création d’espace gérant / première inscription équipe ; ajouter toutes les URLs d’app (prod, preview Vercel, `http://localhost:5173`, `http://localhost:5174`, `http://127.0.0.1:5173`) dans **Redirect URLs** (Vite peut changer de port si 5173 est pris).
 
 ---
 

@@ -124,7 +124,15 @@ export default function Dashboard({ onResetConfig }) {
 
     const checkSession = async () => {
       if (supabase) {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          const msg = (sessionError.message || '').toLowerCase();
+          if (msg.includes('refresh') || msg.includes('invalid jwt') || msg.includes('jwt expired')) {
+            try {
+              await supabase.auth.signOut();
+            } catch (_) {}
+          }
+        }
         if (session) {
           await hydrateSession(session);
           return;

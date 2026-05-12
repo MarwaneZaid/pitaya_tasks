@@ -54,6 +54,16 @@ function mapAuthErrorMessage(error) {
   ) {
     return "Connexion au serveur impossible. Vérifiez Internet, l'URL Supabase et la clé anon, puis réessayez.";
   }
+  if (
+    normalized.includes('email signups are disabled') ||
+    normalized.includes('signup_disabled') ||
+    normalized.includes('signups not allowed')
+  ) {
+    return 'Les inscriptions par e-mail sont désactivées sur ce projet Supabase. Dashboard → Authentication → désactivez uniquement si voulu ; sinon activez « Allow new users to sign up », enregistrez, puis réessayez.';
+  }
+  if (normalized.includes('invalid refresh token') || normalized.includes('refresh token not found')) {
+    return 'Session expirée ou invalide. Rechargez la page ; si le message revient, déconnectez-vous ou videz le stockage du site pour ce domaine (localhost).';
+  }
   return raw || "Une erreur est survenue";
 }
 
