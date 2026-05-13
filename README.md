@@ -4,6 +4,8 @@
 
 Application de gestion de tâches en temps réel pour équipes de restaurant. Un backend Supabase peut servir tous les établissements ; chaque restaurant est isolé dans la base (droits et données).
 
+**Sécurité** : voir [SECURITY.md](SECURITY.md).
+
 ---
 
 ## Fonctionnalités

@@ -3,40 +3,22 @@ import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2 } from 'lu
 import { supabase } from '../lib/storage-supabase';
 import { joinRestaurantByCode } from '../lib/db';
 import { APP_PUBLIC_ORIGIN } from '../config/constants';
+import {
+  AUTH_DOMAIN,
+  AUTH_DOMAIN_LEGACY,
+  emailFromRestaurantName,
+  readPreferredAuthDomain,
+  savePreferredAuthDomain,
+  readLastAuthEmail,
+  saveLastAuthEmail,
+  slugFromRestaurantName,
+  domainFromEmail,
+} from '../lib/authPrefs';
 
-// Domaine utilisé en interne par Supabase (l'utilisateur ne saisit jamais d'email)
-const AUTH_DOMAIN = 'dailydo.app';
-const AUTH_DOMAIN_LEGACY = 'restaurant.dailydo.app';
-const AUTH_DOMAIN_PREF_KEY = 'dailydo_auth_domain_pref';
-const AUTH_TIMEOUT_MS = 12000;
-
-function slugFromRestaurantName(name) {
-  return name
-    .toLowerCase()
-    .trim()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '') || 'restaurant';
-}
-
-function emailFromRestaurantName(name, domain = AUTH_DOMAIN) {
-  return `${slugFromRestaurantName(name)}@${domain}`;
-}
-
-function readPreferredAuthDomain() {
-  try {
-    const value = localStorage.getItem(AUTH_DOMAIN_PREF_KEY);
-    if (value === AUTH_DOMAIN || value === AUTH_DOMAIN_LEGACY) return value;
-  } catch (_) {}
-  return AUTH_DOMAIN;
-}
-
-function savePreferredAuthDomain(domain) {
-  try {
-    localStorage.setItem(AUTH_DOMAIN_PREF_KEY, domain);
-  } catch (_) {}
-}
+/** Une requête signIn peut être lente (TLS, mobile, réseau chargé). */
+const AUTH_SIGNIN_ATTEMPT_MS = 35000;
+/** Plafond pour les deux domaines (dailydo.app puis legacy) sans attendre 2× le délai complet. */
+const AUTH_SIGNIN_TOTAL_BUDGET_MS = 52000;
 
 function isInvalidCredentialsError(error) {
   const msg = error?.message || '';
@@ -67,7 +49,11 @@ function mapAuthErrorMessage(error) {
   return raw || "Une erreur est survenue";
 }
 
-async function withTimeout(promise, message = 'Délai dépassé. Vérifiez votre connexion.', timeoutMs = AUTH_TIMEOUT_MS) {
+async function withTimeout(
+  promise,
+  message = 'Délai dépassé. Vérifiez votre connexion.',
+  timeoutMs = AUTH_SIGNIN_ATTEMPT_MS
+) {
   let timeoutId;
   try {
     return await Promise.race([
@@ -79,6 +65,88 @@ async function withTimeout(promise, message = 'Délai dépassé. Vérifiez votre
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Connexion en 1 requête si l’e-mail exact a déjà été mémorisé après une connexion réussie
+ * (évite 2 tentatives sur dailydo.app + legacy quand le réseau est lent).
+ * @returns {'ok'|'invalid'|'fallback'}
+ */
+async function signInRememberedEmailFirst(name, userPassword) {
+  const stored = readLastAuthEmail();
+  if (!stored || !stored.includes('@')) return 'fallback';
+
+  const inputSlug = slugFromRestaurantName(name);
+  const storedLocal = stored.split('@')[0].toLowerCase();
+  if (storedLocal !== inputSlug) return 'fallback';
+
+  try {
+    const { data, error } = await withTimeout(
+      supabase.auth.signInWithPassword({ email: stored, password: userPassword }),
+      'Connexion trop lente. Réessayez dans quelques secondes.',
+      AUTH_SIGNIN_ATTEMPT_MS
+    );
+    if (!error) {
+      const em = data?.session?.user?.email || data?.user?.email;
+      if (em) saveLastAuthEmail(em);
+      const d = domainFromEmail(em || stored);
+      if (d === AUTH_DOMAIN || d === AUTH_DOMAIN_LEGACY) savePreferredAuthDomain(d);
+      return 'ok';
+    }
+    if (isInvalidCredentialsError(error)) return 'invalid';
+    return 'fallback';
+  } catch (e) {
+    if (isInvalidCredentialsError(e)) return 'invalid';
+    const msg = (e?.message || '').toLowerCase();
+    if (msg.includes('connexion trop lente')) return 'fallback';
+    throw e;
+  }
+}
+
+async function signInWithFallbackDomains(name, userPassword) {
+  const preferred = readPreferredAuthDomain();
+  const secondary = preferred === AUTH_DOMAIN ? AUTH_DOMAIN_LEGACY : AUTH_DOMAIN;
+  const attempts = [preferred, secondary];
+
+  const t0 = Date.now();
+  let lastError = null;
+
+  for (const domain of attempts) {
+    const elapsed = Date.now() - t0;
+    const remaining = AUTH_SIGNIN_TOTAL_BUDGET_MS - elapsed;
+    if (remaining < 2500) {
+      throw lastError || new Error('Connexion trop lente. Réessayez dans quelques secondes.');
+    }
+
+    const attemptMs = Math.min(AUTH_SIGNIN_ATTEMPT_MS, remaining);
+    const email = emailFromRestaurantName(name, domain);
+    const { data, error: signInError } = await withTimeout(
+      supabase.auth.signInWithPassword({ email, password: userPassword }),
+      'Connexion trop lente. Réessayez dans quelques secondes.',
+      attemptMs
+    );
+    if (!signInError) {
+      savePreferredAuthDomain(domain);
+      const em = data?.session?.user?.email || data?.user?.email;
+      if (em) saveLastAuthEmail(em);
+      return;
+    }
+    lastError = signInError;
+    if (!isInvalidCredentialsError(signInError)) {
+      throw signInError;
+    }
+  }
+
+  if (lastError) throw lastError;
+}
+
+async function runLoginWithRememberedFirst(name, userPassword) {
+  const remembered = await signInRememberedEmailFirst(name, userPassword);
+  if (remembered === 'ok') return;
+  if (remembered === 'invalid') {
+    throw new Error('Invalid login credentials');
+  }
+  await signInWithFallbackDomains(name, userPassword);
 }
 
 /** Connexion : gérant qui crée l'espace, ou membre qui se connecte avec son identifiant + code (première fois). */
@@ -98,31 +166,6 @@ export default function LoginScreen({ onEnter }) {
     supabase.auth.getSession().catch(() => {});
   }, []);
 
-  const signInWithFallbackDomains = async (name, userPassword) => {
-    const preferred = readPreferredAuthDomain();
-    const secondary = preferred === AUTH_DOMAIN ? AUTH_DOMAIN_LEGACY : AUTH_DOMAIN;
-    const attempts = [preferred, secondary];
-
-    let lastError = null;
-    for (const domain of attempts) {
-      const email = emailFromRestaurantName(name, domain);
-      const { error: signInError } = await withTimeout(
-        supabase.auth.signInWithPassword({ email, password: userPassword }),
-        'Connexion trop lente. Réessayez dans quelques secondes.'
-      );
-      if (!signInError) {
-        savePreferredAuthDomain(domain);
-        return;
-      }
-      lastError = signInError;
-      if (!isInvalidCredentialsError(signInError)) {
-        throw signInError;
-      }
-    }
-
-    if (lastError) throw lastError;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     const name = identifier.trim();
@@ -140,7 +183,7 @@ export default function LoginScreen({ onEnter }) {
 
       if (flow === 'member') {
         if (isLogin) {
-          await signInWithFallbackDomains(name, password);
+          await runLoginWithRememberedFirst(name, password);
           shouldEnter = true;
         } else {
           const code = inviteCode.trim().toUpperCase();
@@ -165,6 +208,8 @@ export default function LoginScreen({ onEnter }) {
             throw signUpError;
           }
           savePreferredAuthDomain(AUTH_DOMAIN);
+          const suEmail = signUpData?.session?.user?.email || signUpData?.user?.email;
+          if (suEmail) saveLastAuthEmail(suEmail);
           if (!signUpData.session) {
             setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous avec votre identifiant.');
             return;
@@ -178,7 +223,7 @@ export default function LoginScreen({ onEnter }) {
           shouldEnter = true;
         }
       } else if (isLogin) {
-        await signInWithFallbackDomains(name, password);
+        await runLoginWithRememberedFirst(name, password);
         shouldEnter = true;
       } else {
         const { data: signUpData, error: signUpError } = await withTimeout(
@@ -199,6 +244,8 @@ export default function LoginScreen({ onEnter }) {
           throw signUpError;
         }
         savePreferredAuthDomain(AUTH_DOMAIN);
+        const suEmail = signUpData?.session?.user?.email || signUpData?.user?.email;
+        if (suEmail) saveLastAuthEmail(suEmail);
         if (!signUpData.session) {
           setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous.');
           return;
@@ -210,6 +257,8 @@ export default function LoginScreen({ onEnter }) {
       const msg = err.message || '';
       if (msg.includes('rate limit') || msg.includes('rate_limit')) {
         setError('Trop de tentatives. Réessayez dans quelques minutes.');
+      } else if (isInvalidCredentialsError(err)) {
+        setError('Identifiant ou mot de passe incorrect.');
       } else {
         setError(mapAuthErrorMessage(err));
       }

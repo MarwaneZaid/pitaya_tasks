@@ -47,6 +47,31 @@ const RESTAURANT_CACHE_MS = 10000;
 /** Évite deux requêtes `user_roles` en parallèle (ex. getPlanningConfig + getTasks). */
 let inflightUserRestaurant = null;
 
+/** Extrait le nom depuis la relation PostgREST `restaurants` (objet ou tableau selon versions / vues). */
+function nameFromRestaurantsEmbed(restaurantsField) {
+  if (!restaurantsField) return null;
+  if (Array.isArray(restaurantsField)) {
+    const first = restaurantsField[0];
+    if (first?.name == null) return null;
+    const t = String(first.name).trim();
+    return t || null;
+  }
+  if (restaurantsField.name == null) return null;
+  const t = String(restaurantsField.name).trim();
+  return t || null;
+}
+
+async function fetchRestaurantNameById(client, restaurantId) {
+  const { data: row, error } = await client
+    .from('restaurants')
+    .select('name')
+    .eq('id', restaurantId)
+    .maybeSingle();
+  if (error || row?.name == null) return null;
+  const t = String(row.name).trim();
+  return t || null;
+}
+
 async function fetchRestaurantByUserId(client, userId) {
   const { data: role, error } = await client
     .from('user_roles')
@@ -56,9 +81,14 @@ async function fetchRestaurantByUserId(client, userId) {
 
   if (error || !role) return null;
 
+  let name = nameFromRestaurantsEmbed(role.restaurants);
+  if (!name) {
+    name = await fetchRestaurantNameById(client, role.restaurant_id);
+  }
+
   const restaurant = {
     id: role.restaurant_id,
-    name: role.restaurants.name,
+    name: name || '',
     role: role.role
   };
   cachedRestaurant = restaurant;
@@ -147,8 +177,7 @@ export async function createRestaurant(name) {
       }
       throw error;
     }
-    cachedRestaurant = null;
-    cachedRestaurantAt = 0;
+    clearRestaurantCache();
     return { id: data?.id };
   } catch (e) {
     rethrowMappedDbError(e);
@@ -418,8 +447,7 @@ export async function joinRestaurantByCode(code) {
     throw new Error("Code d'invitation invalide.");
   }
 
-  cachedRestaurant = null;
-  cachedRestaurantAt = 0;
+  clearRestaurantCache();
 
   return { id: data.id, name: data.name };
 }

@@ -31,6 +31,7 @@ import {
   savePlanningConfig,
   clearRestaurantCache,
 } from './lib/db';
+import { clearLastAuthEmail } from './lib/authPrefs';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
@@ -170,7 +171,8 @@ export default function Dashboard({ onResetConfig }) {
 
   useEffect(() => {
     if (!postAuthPending) return undefined;
-    const t = setTimeout(() => setPostAuthPending(false), 15000);
+    /** Filet de sécurité si l’hydratation reste bloquée (réseau très lent) — doit rester > budget auth + 1er chargement tâches. */
+    const t = setTimeout(() => setPostAuthPending(false), 90000);
     return () => clearTimeout(t);
   }, [postAuthPending]);
 
@@ -381,6 +383,7 @@ export default function Dashboard({ onResetConfig }) {
   const handleSignOut = async () => {
     clearRestaurantCache();
     sessionHydrateBurstRef.current = { uid: null, at: 0 };
+    clearLastAuthEmail();
     if (supabase) await supabase.auth.signOut();
     else { localStorage.removeItem(USER_NAME_KEY); setIsNameSet(false); setUserName(''); }
   };
@@ -393,6 +396,7 @@ export default function Dashboard({ onResetConfig }) {
     if (supabase) supabase.auth.signOut();
     clearRestaurantCache();
     sessionHydrateBurstRef.current = { uid: null, at: 0 };
+    clearLastAuthEmail();
     clearSupabaseCredentials();
     if (onResetConfig) onResetConfig();
   };

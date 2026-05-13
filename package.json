@@ -2,6 +2,7 @@
   "name": "dailydo",
   "private": true,
   "version": "1.0.0",
+  "description": "DailyDo — tableau de bord partagé des tâches pour équipes restaurant (Supabase, temps réel, rôles).",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
@@ -25,10 +26,10 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@vitejs/plugin-react": "^4.3.4",
-    "happy-dom": "^20.7.0",
+    "happy-dom": "^20.8.9",
     "jsdom": "^28.1.0",
     "tailwindcss": "^4.0.0",
-    "vite": "^6.0.3",
+    "vite": "^6.4.2",
     "vitest": "^4.0.18"
   },
   "optionalDependencies": {
