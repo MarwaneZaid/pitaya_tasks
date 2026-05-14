@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DailyDo — vider le stockage local</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    code { background: #f1f5f9; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.9em; }
+    a { color: #d97706; font-weight: 600; }
+    .ok { color: #15803d; }
+    ul { padding-left: 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Vider les données DailyDo (localhost)</h1>
+  <p>Cette page supprime du navigateur : clés DailyDo, préférences d’auth, nom affiché, et jetons de session <strong>Supabase</strong> pour ce domaine (<code>localhost</code>).</p>
+  <p id="status">Nettoyage…</p>
+  <ul id="removed"></ul>
+  <p><a id="back" href="/">Retour à l’app</a></p>
+  <script>
+    (function () {
+      const removed = [];
+      const exact = new Set(['restaurant-user-name', 'dailydo_supabase_url', 'dailydo_supabase_anon_key', 'dailydo_auth_domain_pref', 'dailydo_last_auth_email']);
+      function sweep(store, name) {
+        const keys = [];
+        for (let i = 0; i < store.length; i++) keys.push(store.key(i));
+        keys.forEach(function (k) {
+          if (!k) return;
+          if (exact.has(k) || k.startsWith('dailydo_') || k.startsWith('sb-') || k.toLowerCase().includes('supabase')) {
+            store.removeItem(k);
+            removed.push(name + ':' + k);
+          }
+        });
+      }
+      try {
+        sweep(localStorage, 'localStorage');
+        sweep(sessionStorage, 'sessionStorage');
+        document.getElementById('status').innerHTML = '<span class="ok">Terminé.</span> Rechargez l’app puis reconnectez-vous.';
+        const ul = document.getElementById('removed');
+        removed.sort().forEach(function (line) {
+          const li = document.createElement('li');
+          li.textContent = line;
+          ul.appendChild(li);
+        });
+        if (removed.length === 0) {
+          const li = document.createElement('li');
+          li.textContent = '(aucune clé correspondante trouvée)';
+          ul.appendChild(li);
+        }
+      } catch (e) {
+        document.getElementById('status').textContent = 'Erreur : ' + (e && e.message ? e.message : String(e));
+      }
+    })();
+  </script>
+</body>
+</html>
