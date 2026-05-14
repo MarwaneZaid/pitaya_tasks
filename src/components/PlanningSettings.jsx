@@ -4,6 +4,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { JOURS } from '../config/planning';
 import { TASK_TYPE_QUOTIDIEN, TASK_TYPE_SEMAINE, TASK_TYPE_ANNEXE } from '../config/constants';
 import { getPlanningConfig, savePlanningConfig } from '../lib/db';
+import { toPersistablePlanningConfig } from '../lib/planningConfigMeta';
 
 const DEFAULT_PLANNING = {
   siteName: 'Mon Restaurant',
@@ -45,8 +46,9 @@ export default function PlanningSettings({ isOpen, onClose, onSave }) {
     if (saving) return;
     setSaving(true);
     try {
-      await savePlanningConfig(config);
-      onSave(config);
+      const persistable = toPersistablePlanningConfig(config);
+      await savePlanningConfig(persistable);
+      onSave({ ...persistable, hasPersistedPlanning: true });
       onClose();
       showToast({ message: 'Planning enregistré.', variant: 'success' });
     } catch (e) {

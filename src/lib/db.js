@@ -213,6 +213,9 @@ export async function getPlanningConfig() {
     });
   }
 
+  const templateListLen = Array.isArray(templates) ? templates.length : 0;
+  config.hasPersistedPlanning = templateListLen > 0;
+
   return config;
 }
 
