@@ -28,7 +28,6 @@ import {
   deleteTask,
   deleteTasks,
   getPlanningConfig,
-  savePlanningConfig,
   clearRestaurantCache,
 } from './lib/db';
 import { clearLastAuthEmail } from './lib/authPrefs';
@@ -225,10 +224,15 @@ export default function Dashboard({ onResetConfig }) {
           supabase ? getPlanningConfig() : Promise.resolve(null),
           supabase ? getTasks() : Promise.resolve([]),
         ]);
-        if (!currentConfig) { setTasks([]); return; }
+        if (!currentConfig) {
+          setPlanningConfig(null);
+          setTasks([]);
+          return;
+        }
 
         let list = dbTasks || [];
-        const isFirstTime = (!currentConfig.siteName && currentConfig.planning.lundi.length === 0);
+        /** Aucune ligne `planning_templates` encore : proposer l’assistant (indépendant du nom du site en base). */
+        const isFirstTime = currentConfig.hasPersistedPlanning !== true;
         setPlanningConfig(currentConfig);
 
         const today = getTodayDate();
@@ -339,6 +343,7 @@ export default function Dashboard({ onResetConfig }) {
     } catch (e) {
       console.error(e);
       setTasks(previous);
+      showToast({ message: 'Impossible de mettre à jour la tâche. Réessayez.', variant: 'error' });
     }
   };
 
@@ -604,8 +609,7 @@ export default function Dashboard({ onResetConfig }) {
         <PlanningSettings
           isOpen={showPlanningSettings}
           onClose={() => setShowPlanningSettings(false)}
-          onSave={async (newConf) => {
-            await savePlanningConfig(newConf);
+          onSave={(newConf) => {
             setPlanningConfig(newConf);
             loadTasks();
           }}

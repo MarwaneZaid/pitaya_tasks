@@ -15,10 +15,10 @@ import {
   domainFromEmail,
 } from '../lib/authPrefs';
 
-/** Une requête signIn peut être lente (TLS, mobile, réseau chargé). */
-const AUTH_SIGNIN_ATTEMPT_MS = 35000;
-/** Plafond pour les deux domaines (dailydo.app puis legacy) sans attendre 2× le délai complet. */
-const AUTH_SIGNIN_TOTAL_BUDGET_MS = 52000;
+/** Délai max par tentative Auth (sign-in / sign-up). Les appels peuvent être longs (TLS, mobile, proxy). */
+const AUTH_SIGNIN_ATTEMPT_MS = 120000;
+/** Inscription : même ordre de grandeur. */
+const AUTH_SIGNUP_ATTEMPT_MS = 120000;
 
 function isInvalidCredentialsError(error) {
   const msg = error?.message || '';
@@ -45,6 +45,9 @@ function mapAuthErrorMessage(error) {
   }
   if (normalized.includes('invalid refresh token') || normalized.includes('refresh token not found')) {
     return 'Session expirée ou invalide. Rechargez la page ; si le message revient, déconnectez-vous ou videz le stockage du site pour ce domaine (localhost).';
+  }
+  if (normalized.includes('connexion trop lente') || normalized.includes('délai dépassé')) {
+    return 'Le serveur d’authentification met trop longtemps à répondre. Vérifiez la connexion, un VPN ou un pare-feu, l’URL du projet Supabase dans .env, puis réessayez. Si le problème continue, ouvrez le dashboard Supabase pour vérifier que le projet est actif.';
   }
   return raw || "Une erreur est survenue";
 }
@@ -108,22 +111,14 @@ async function signInWithFallbackDomains(name, userPassword) {
   const secondary = preferred === AUTH_DOMAIN ? AUTH_DOMAIN_LEGACY : AUTH_DOMAIN;
   const attempts = [preferred, secondary];
 
-  const t0 = Date.now();
   let lastError = null;
 
   for (const domain of attempts) {
-    const elapsed = Date.now() - t0;
-    const remaining = AUTH_SIGNIN_TOTAL_BUDGET_MS - elapsed;
-    if (remaining < 2500) {
-      throw lastError || new Error('Connexion trop lente. Réessayez dans quelques secondes.');
-    }
-
-    const attemptMs = Math.min(AUTH_SIGNIN_ATTEMPT_MS, remaining);
     const email = emailFromRestaurantName(name, domain);
     const { data, error: signInError } = await withTimeout(
       supabase.auth.signInWithPassword({ email, password: userPassword }),
       'Connexion trop lente. Réessayez dans quelques secondes.',
-      attemptMs
+      AUTH_SIGNIN_ATTEMPT_MS
     );
     if (!signInError) {
       savePreferredAuthDomain(domain);
@@ -198,7 +193,8 @@ export default function LoginScreen({ onEnter }) {
                 },
               },
             }),
-            'Inscription trop lente. Vérifiez votre connexion et réessayez.'
+            'Inscription trop lente. Vérifiez votre connexion et réessayez.',
+            AUTH_SIGNUP_ATTEMPT_MS
           );
           if (signUpError) {
             if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
@@ -234,7 +230,8 @@ export default function LoginScreen({ onEnter }) {
               data: { restaurant_name: name },
             },
           }),
-          'Création du compte trop lente. Vérifiez votre connexion et réessayez.'
+          'Création du compte trop lente. Vérifiez votre connexion et réessayez.',
+          AUTH_SIGNUP_ATTEMPT_MS
         );
         if (signUpError) {
           if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
