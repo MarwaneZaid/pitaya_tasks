@@ -1,7 +1,9 @@
 -- =============================================================================
 -- DailyDo — durcissement sécurité / perf (idempotent)
 -- =============================================================================
--- Quand l’exécuter : après `docs/supabase-dailydo-complete-fix.sql` (ou équivalent).
+-- PRÉREQUIS : exécuter d’abord `docs/supabase-dailydo-complete-fix.sql` (script
+-- canonique), puis CE fichier dans une deuxième requête SQL — même ordre en prod
+-- et en staging pour éviter les écarts doc / base.
 -- Corrige notamment :
 --   1) fonction `set_updated_at` sans search_path fixe (lint Supabase 0011)
 --   2) table `app_storage` : politiques trop permissives pour `anon` + consolidation

@@ -84,6 +84,9 @@ export default function Dashboard({ onResetConfig }) {
   /** Évite double getUserRestaurant + loadTasks quand getSession() et onAuthStateChange arrivent à la suite (latence reconnexion). */
   const sessionHydrateBurstRef = useRef({ uid: null, at: 0 });
   const loadTasksInFlightRef = useRef(null);
+  /** false sur l’écran login : évite onAuthStateChange pendant signUp/signIn (fetch « aborted »). */
+  const authScreenUnlockedRef = useRef(false);
+  const hydrateSessionRef = useRef(null);
 
   // ─── Auth & session ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -121,6 +124,7 @@ export default function Dashboard({ onResetConfig }) {
         queueMicrotask(() => setPostAuthPending(false));
       }
     };
+    hydrateSessionRef.current = hydrateSession;
 
     const checkSession = async () => {
       if (supabase) {
@@ -134,10 +138,12 @@ export default function Dashboard({ onResetConfig }) {
           }
         }
         if (session) {
+          authScreenUnlockedRef.current = true;
           await hydrateSession(session);
           return;
         }
       }
+      authScreenUnlockedRef.current = false;
       setIsNameSet(false);
       setPostAuthPending(false);
       setLoading(false);
@@ -147,8 +153,11 @@ export default function Dashboard({ onResetConfig }) {
     if (supabase) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
         if (session) {
-          await hydrateSession(session);
+          if (authScreenUnlockedRef.current) {
+            await hydrateSession(session);
+          }
         } else {
+          authScreenUnlockedRef.current = false;
           sessionHydrateBurstRef.current = { uid: null, at: 0 };
           setIsNameSet(false);
           setUserName('');
@@ -422,9 +431,16 @@ export default function Dashboard({ onResetConfig }) {
   if (!isNameSet) {
     return (
       <LoginScreen
-        onEnter={() => {
+        onEnter={async () => {
+          authScreenUnlockedRef.current = true;
           setIsNameSet(true);
           setPostAuthPending(true);
+          if (supabase) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session && hydrateSessionRef.current) {
+              await hydrateSessionRef.current(session);
+            }
+          }
         }}
       />
     );

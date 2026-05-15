@@ -1,7 +1,12 @@
 -- ============================================================
--- DAILYDO — SCRIPT D'INITIALISATION SUPABASE
+-- DAILYDO — SCRIPT D'INITIALISATION SUPABASE (historique)
 -- ============================================================
--- Instructions :
+-- Pour un nouveau déploiement, préférez l’ordre canonique :
+--   1) docs/supabase-dailydo-complete-fix.sql
+--   2) docs/supabase-security-hardening.sql
+-- (voir README et docs/guides/DEPLOY_CHECKLIST.md).
+--
+-- Instructions si vous utilisez encore ce fichier :
 --   1. Créez un projet sur https://supabase.com (gratuit)
 --   2. SQL Editor → New query → collez tout ce fichier → Run
 --   3. Copiez l'URL et la clé "anon public" depuis
@@ -214,22 +219,26 @@ END;
 $$;
 
 -- ── 6. REALTIME : activer les changements en temps réel ──────────────────────
--- Permet la synchronisation live entre appareils.
+-- Filtre client restaurant_id=eq.<uuid> : replica identity complète recommandée.
+ALTER TABLE public.tasks REPLICA IDENTITY FULL;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_publication_tables
-        WHERE pubname = 'supabase_realtime' AND tablename = 'tasks'
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'tasks'
     ) THEN
         ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+        RAISE NOTICE 'DailyDo: public.tasks ajoutée à supabase_realtime.';
+    ELSE
+        RAISE NOTICE 'DailyDo: public.tasks déjà dans supabase_realtime.';
     END IF;
-END$$;
+END $$;
 
 -- ── 7. AUTH : désactiver la confirmation email ────────────────────────────────
--- (Optionnel mais recommandé pour éviter les blocages à l'inscription)
--- À faire manuellement dans : Supabase Dashboard → Authentication → Email Templates
--- → Désactiver "Enable email confirmations"
--- OU via l'API SQL :
+-- (Optionnel — peut échouer sur certains projets managés ; sinon dashboard.)
+-- Préférez : Authentication → Providers → Email → Confirm email (voir DEPLOY_CHECKLIST).
+-- Si vous exécutez quand même la ligne SQL :
 UPDATE auth.config SET confirm_email_address_enabled = false WHERE TRUE;
 
 -- ============================================================

@@ -45,14 +45,22 @@ Ajoutez ces variables d'environnement sur Vercel/Netlify avant de déployer :
 2. Choisissez un nom (ex. `mon-restaurant`), un mot de passe, une région → **Create**
 3. Attendez la création (~30 secondes)
 
-### 2. Exécuter le script SQL
+### 2. Exécuter les scripts SQL (ordre fixe)
 
-1. Dans Supabase : **SQL Editor** → **New query**
-2. Copiez tout le contenu de **`docs/supabase-dailydo-complete-fix.sql`** (schéma, RLS, RPC `create_restaurant` + `join_restaurant_by_invite_code`, realtime sur les tâches). Ensuite, optionnel mais recommandé si vous avez une table `app_storage` : **`docs/supabase-security-hardening.sql`**. Alternative historique : `supabase-setup.sql` à la racine — vérifiez alors que les RPC et le join par code sont bien déployés (voir le fichier `docs/` ci-dessus).
-3. Cliquez **Run**
+1. Supabase : **SQL Editor** → **New query**.
+2. Collez **tout** le fichier **`docs/supabase-dailydo-complete-fix.sql`** → **Run** (tables, RLS, RPC, Realtime `tasks` + `REPLICA IDENTITY FULL`).
+3. Nouvelle requête : collez **`docs/supabase-security-hardening.sql`** → **Run** (trigger `set_updated_at`, durcissement `app_storage` si la table existe).
 
-> **Authentication → Providers** : activez **Anonymous** si vous utilisez le flux « équipe + code » sans e-mail.  
-> Si une ligne en fin de `supabase-setup.sql` provoque une erreur, ignorez-la et désactivez la confirmation e-mail dans **Authentication → Email** → décochez « Enable email confirmations ».
+Ne pas inverser l’ordre : le premier fichier est le schéma canonique ; le second applique le durcissement par-dessus.
+
+**Authentication (dashboard Supabase), après le SQL :**
+
+- **Providers → Anonymous** : à activer si vous utilisez le flux **équipe + code** sans e-mail classique.
+- **Providers → Email → Confirm email** : désactiver pour **tests / dev rapides** ; en **production stricte**, laisser la confirmation activée et renseigner les **Redirect URLs** (voir `docs/guides/DEPLOY_CHECKLIST.md`).
+
+**Realtime :** dans **Database → Publications**, la publication `supabase_realtime` doit inclure la table **`tasks`**. Le script canonique l’ajoute ; si une ancienne base ne l’a pas, réexécutez la section Realtime du `complete-fix` ou vérifiez les messages NOTICE en fin d’exécution.
+
+*Historique :* `supabase-setup.sql` / `src/supabase-saas-setup.sql` — préférez les deux fichiers `docs/` ci-dessus pour un déploiement aligné avec l’app actuelle.
 
 ### 3. Récupérer les credentials
 

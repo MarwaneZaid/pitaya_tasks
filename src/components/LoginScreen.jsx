@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2 } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
 import { joinRestaurantByCode } from '../lib/db';
@@ -49,7 +49,17 @@ function mapAuthErrorMessage(error) {
   if (normalized.includes('connexion trop lente') || normalized.includes('délai dépassé')) {
     return 'Le serveur d’authentification met trop longtemps à répondre. Vérifiez la connexion, un VPN ou un pare-feu, l’URL du projet Supabase dans .env, puis réessayez. Si le problème continue, ouvrez le dashboard Supabase pour vérifier que le projet est actif.';
   }
+  if (normalized.includes('aborted') || normalized.includes('abort')) {
+    return 'Connexion interrompue. Réessayez une fois ; si le compte a été créé, utilisez « Se connecter » avec le même mot de passe.';
+  }
   return raw || "Une erreur est survenue";
+}
+
+/** Si signUp/signIn a réussi côté serveur mais le fetch client a été annulé (course React). */
+async function recoverSessionAfterAbort() {
+  if (!supabase) return false;
+  const { data: { session } } = await supabase.auth.getSession();
+  return !!session;
 }
 
 async function withTimeout(
@@ -154,19 +164,16 @@ export default function LoginScreen({ onEnter }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  React.useEffect(() => {
-    if (!supabase) return;
-    // Réchauffe la session Auth pour réduire la latence perçue du premier submit.
-    supabase.auth.getSession().catch(() => {});
-  }, []);
+  const submitInFlightRef = useRef(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const name = identifier.trim();
     if (!name || !password) return;
     if (flow === 'member' && !isLogin && inviteCode.trim().length < 8) return;
+    if (submitInFlightRef.current) return;
 
+    submitInFlightRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -251,8 +258,14 @@ export default function LoginScreen({ onEnter }) {
       }
     } catch (err) {
       console.error(err);
-      const msg = err.message || '';
-      if (msg.includes('rate limit') || msg.includes('rate_limit')) {
+      const msg = (err?.message || '').toLowerCase();
+      if (msg.includes('aborted') || msg.includes('abort')) {
+        if (await recoverSessionAfterAbort()) {
+          shouldEnter = true;
+        } else {
+          setError(mapAuthErrorMessage(err));
+        }
+      } else if (msg.includes('rate limit') || msg.includes('rate_limit')) {
         setError('Trop de tentatives. Réessayez dans quelques minutes.');
       } else if (isInvalidCredentialsError(err)) {
         setError('Identifiant ou mot de passe incorrect.');
@@ -260,10 +273,11 @@ export default function LoginScreen({ onEnter }) {
         setError(mapAuthErrorMessage(err));
       }
     } finally {
+      submitInFlightRef.current = false;
       setLoading(false);
     }
 
-    if (shouldEnter) onEnter();
+    if (shouldEnter) await onEnter();
   };
 
   const switchFlow = (next) => {

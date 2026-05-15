@@ -1,14 +1,27 @@
 -- =============================================================================
--- DailyDo — correctif complet pour un projet Supabase (ex. jgesheqrpskfygaxdncl)
+-- DailyDo — script SQL CANONIQUE (schéma + RLS + RPC + Realtime)
 -- =============================================================================
--- Où l’exécuter : https://supabase.com/dashboard/project/jgesheqrpskfygaxdncl/sql/new
--- (remplace l’ID projet si besoin — c’est ton URL sans https://.supabase.co)
+-- Où l’exécuter : Dashboard → SQL Editor → New query → coller tout ce fichier → Run.
 --
--- Ce script est idempotent : tables IF NOT EXISTS, policies DROP IF EXISTS, etc.
--- Après exécution :
---   1) Authentication → Providers → activer « Anonymous » si tu utilises l’onglet Équipe (code seul)
---   2) Authentication → (optionnel) désactiver la confirmation e-mail pour les tests rapides
---   3) Vercel / .env : VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY = ce projet
+-- ORDRE STABLE (évite l’écart doc / prod) :
+--   1) CE FICHIER en entier (ci-dessous).
+--   2) Ensuite, dans une nouvelle requête : docs/supabase-security-hardening.sql
+--      (trigger set_updated_at / search_path, table app_storage si elle existe).
+--
+-- Ce script est idempotent : IF NOT EXISTS, DROP POLICY IF EXISTS, etc.
+--
+-- Dashboard Supabase — Authentication (après le SQL) :
+--   • Flux « Équipe » / code sans e-mail classique : Authentication → Providers
+--     → activer « Anonymous » (sinon signUp anonyme / flux équipe échoue).
+--   • Confirmation e-mail : Authentication → Providers → Email → « Confirm email ».
+--     Désactiver pour dev / tests rapides ; en production stricte, laisser activé
+--     et configurer les Redirect URLs (voir docs/guides/DEPLOY_CHECKLIST.md).
+--   • Variables front : VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY = ce projet.
+--
+-- Realtime : ce script ajoute public.tasks à la publication supabase_realtime et
+-- définit REPLICA IDENTITY FULL (requis pour les filtres postgres_changes sur
+-- restaurant_id). Vérifier dans le dashboard : Database → Publications →
+-- supabase_realtime contient « tasks » ; Realtime activé pour le projet.
 -- =============================================================================
 
 -- ── Tables de base ───────────────────────────────────────────────────────────
@@ -319,7 +332,11 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.join_restaurant_by_invite_code(text) TO authenticated;
 
--- ── Realtime : tâches ───────────────────────────────────────────────────────
+-- ── Realtime : tâches (publication + replica identity pour filtres côté client) ─
+-- Le Dashboard filtre par restaurant_id=eq.<uuid>. Sans REPLICA IDENTITY FULL,
+-- certains UPDATE/DELETE peuvent ne pas émettre d’événement filtré correctement.
+
+ALTER TABLE public.tasks REPLICA IDENTITY FULL;
 
 DO $$
 BEGIN
@@ -328,9 +345,16 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'tasks'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+    RAISE NOTICE 'DailyDo: public.tasks ajoutée à supabase_realtime.';
+  ELSE
+    RAISE NOTICE 'DailyDo: public.tasks déjà publiée dans supabase_realtime.';
   END IF;
 END $$;
 
 -- =============================================================================
--- Fin du script. Tester : inscrire un gérant dans l’app (nom + mot de passe).
+-- Fin du script canonique. Étape suivie obligatoire : exécuter
+-- docs/supabase-security-hardening.sql dans une nouvelle requête.
+-- Puis : Authentication (Anonymous si équipe, Confirm email selon env).
+-- Tester : inscrire un gérant (nom + mot de passe) et vérifier la sync Realtime
+-- entre deux onglets sur les tâches.
 -- =============================================================================

@@ -4,6 +4,9 @@
 -- contrainte rôle + manager, set_updated_at, revoke anon sur tables + fonctions,
 -- publication Realtime tasks.
 -- Idempotent autant que possible. À exécuter dans SQL Editor une fois.
+--
+-- Nouveau projet : préférer docs/supabase-dailydo-complete-fix.sql puis
+-- docs/supabase-security-hardening.sql (ordre stable, voir README).
 -- =============================================================================
 
 -- ── 0) Schéma user_roles : manager + un seul restaurant par utilisateur ─────
@@ -233,7 +236,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_roles TO authenticated
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.planning_templates TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.tasks TO authenticated;
 
--- ── 4) Realtime ─────────────────────────────────────────────────────────────
+-- ── 4) Realtime (public.tasks + replica identity pour filtres restaurant_id) ─
+
+ALTER TABLE public.tasks REPLICA IDENTITY FULL;
 
 DO $$
 BEGIN
@@ -242,6 +247,9 @@ BEGIN
     WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'tasks'
   ) THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+    RAISE NOTICE 'DailyDo: public.tasks ajoutée à supabase_realtime.';
+  ELSE
+    RAISE NOTICE 'DailyDo: public.tasks déjà dans supabase_realtime.';
   END IF;
 END $$;
 
