@@ -321,20 +321,34 @@ export async function saveTask(task) {
     completed_by: task.completedBy || null
   };
 
-  // Si l'ID est un nombre (nouveau via Date.now()), on l'omet pour laisser UUID générer,
-  // sinon on l'update.
-  if (typeof task.id === 'string' && task.id.length > 20) {
-    dbTask.id = task.id;
+  const isExisting =
+    typeof task.id === 'string' && task.id.length > 20;
+
+  // Upsert exige INSERT + UPDATE en RLS : les employés n'ont que UPDATE → update() pour les lignes existantes.
+  if (isExisting) {
+    const { data, error } = await client
+      .from('tasks')
+      .update(dbTask)
+      .eq('id', task.id)
+      .eq('restaurant_id', resto.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Erreur saveTask (update):', error);
+      throw error;
+    }
+    return { ...task, id: data.id };
   }
 
   const { data, error } = await client
     .from('tasks')
-    .upsert([dbTask], { onConflict: 'id' })
+    .insert([dbTask])
     .select()
     .single();
 
   if (error) {
-    console.error("Erreur saveTask:", error);
+    console.error('Erreur saveTask (insert):', error);
     throw error;
   }
 
@@ -367,17 +381,35 @@ export async function saveTasks(tasksArray) {
     return dbTask;
   });
 
-  const { data, error } = await client
-    .from('tasks')
-    .upsert(payload, { onConflict: 'id' })
-    .select();
+  const withId = payload.filter((row) => row.id);
+  const withoutId = payload.filter((row) => !row.id);
 
-  if (error) {
-    console.error('Erreur saveTasks:', error);
-    throw error;
+  const rows = [];
+  if (withoutId.length > 0) {
+    const { data, error } = await client.from('tasks').insert(withoutId).select();
+    if (error) {
+      console.error('Erreur saveTasks (insert):', error);
+      throw error;
+    }
+    rows.push(...(data || []));
+  }
+  for (const row of withId) {
+    const { id, ...patch } = row;
+    const { data, error } = await client
+      .from('tasks')
+      .update(patch)
+      .eq('id', id)
+      .eq('restaurant_id', resto.id)
+      .select()
+      .maybeSingle();
+    if (error) {
+      console.error('Erreur saveTasks (update):', error);
+      throw error;
+    }
+    if (data) rows.push(data);
   }
 
-  return mergeTasksWithUpsertRows(tasksArray, payload, data);
+  return mergeTasksWithUpsertRows(tasksArray, payload, rows);
 }
 
 export async function deleteTask(taskId) {
