@@ -108,6 +108,12 @@ export async function getUserRestaurant() {
   if (!client) return null;
   const { data: { session } } = await client.auth.getSession();
   if (!session) return null;
+  // Valide le JWT côté serveur (utile juste après signUp + join par code).
+  try {
+    await client.auth.getUser();
+  } catch (_) {
+    return null;
+  }
 
   if (
     cachedRestaurant &&
@@ -420,6 +426,51 @@ export async function getInviteCode() {
 
   // On utilise l'ID du restaurant comme base du code d'invitation (les 8 premiers chars de l'UUID)
   return resto.id.substring(0, 8).toUpperCase();
+}
+
+/**
+ * Accès employé : uniquement le code d’invitation (auth anonyme Supabase).
+ * Sur le même appareil, la session est conservée — pas besoin de ressaisir le code.
+ */
+export async function enterTeamWithInviteCode(code) {
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+
+  const normalized = (code && String(code).trim().toUpperCase()) || '';
+  if (normalized.length < 8) {
+    throw new Error("Code d'invitation invalide (8 caractères).");
+  }
+
+  let { data: { session } } = await client.auth.getSession();
+  if (session) {
+    const existing = await fetchRestaurantByUserId(client, session.user.id);
+    if (existing) {
+      return { status: 'already', restaurant: existing };
+    }
+  }
+
+  if (!session) {
+    const { data, error } = await client.auth.signInAnonymously();
+    if (error) {
+      if (
+        error.message?.includes('anonymous') ||
+        error.message?.includes('Anonymous sign-ins are disabled')
+      ) {
+        throw new Error(
+          'Connexion équipe désactivée sur ce projet. Le gérant doit activer Authentication → Providers → Anonymous dans Supabase.'
+        );
+      }
+      rethrowMappedDbError(error);
+    }
+    session = data?.session ?? null;
+    if (!session) {
+      throw new Error('Connexion équipe impossible. Réessayez.');
+    }
+  }
+
+  await assertAuthUserSynced(client);
+  const restaurant = await joinRestaurantByCode(normalized);
+  return { status: 'joined', restaurant };
 }
 
 export async function joinRestaurantByCode(code) {
