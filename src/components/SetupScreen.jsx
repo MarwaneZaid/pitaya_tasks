@@ -165,8 +165,11 @@ export default function SetupScreen({ onComplete }) {
 
               {/* SQL Script reminder */}
               <div className="mb-6 p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                <p className="text-xs text-blue-700">
-                  <strong>Important :</strong> dans le SQL Editor Supabase, exécutez le script du dépôt <code className="bg-blue-100 px-1 rounded">src/supabase-saas-setup.sql</code> (ou <code className="bg-blue-100 px-1 rounded">supabase-setup.sql</code> selon votre version). Cela crée les tables et règles nécessaires.
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  <strong>Important :</strong> dans le SQL Editor Supabase, exécutez dans l’ordre :{' '}
+                  <code className="bg-blue-100 px-1 rounded">docs/supabase-dailydo-complete-fix.sql</code> puis{' '}
+                  <code className="bg-blue-100 px-1 rounded">docs/supabase-security-hardening.sql</code>.
+                  Ensuite : Authentication → activer <strong>Anonymous</strong> si le flux équipe sans e-mail ; option <strong>Confirm email</strong> selon dev ou prod (voir <code className="bg-blue-100 px-1 rounded">docs/guides/DEPLOY_CHECKLIST.md</code>).
                 </p>
               </div>
 

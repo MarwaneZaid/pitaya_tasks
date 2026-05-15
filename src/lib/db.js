@@ -275,8 +275,7 @@ export async function getTasks(dateFilter = null) {
 
   const { data, error } = await query;
   if (error) {
-    console.error("Erreur getTasks:", error);
-    return [];
+    rethrowMappedDbError(error);
   }
 
   // Adapter le format DB au format Frontend
@@ -379,7 +378,8 @@ export async function deleteTask(taskId) {
   if (typeof taskId !== 'string') return;
   const client = getClient();
   if (!client) return;
-  await client.from('tasks').delete().eq('id', taskId);
+  const { error } = await client.from('tasks').delete().eq('id', taskId);
+  if (error) rethrowMappedDbError(error);
 }
 
 export async function deleteTasks(taskIds) {
@@ -388,7 +388,8 @@ export async function deleteTasks(taskIds) {
   if (ids.length === 0) return;
   const client = getClient();
   if (!client) return;
-  await client.from('tasks').delete().in('id', ids);
+  const { error } = await client.from('tasks').delete().in('id', ids);
+  if (error) rethrowMappedDbError(error);
 }
 
 /**

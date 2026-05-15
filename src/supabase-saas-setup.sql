@@ -1,6 +1,10 @@
 -- ========================================================================================
 -- DAILYDO SAAS - SCRIPT D'INITIALISATION SUPABASE (MULTI-TENANT)
 -- ========================================================================================
+-- NOTE (2026) : pour alignement avec l’app actuelle, exécutez plutôt dans l’ordre :
+--   docs/supabase-dailydo-complete-fix.sql puis docs/supabase-security-hardening.sql
+-- Ce fichier reste pour référence / anciens déploiements.
+-- ========================================================================================
 -- Ce script configure la base de données pour un usage commercial (SaaS).
 -- Il active la Row Level Security (RLS) pour isoler les données de chaque restaurant.
 -- Prérequis : Supabase Authentication doit être activé (Email/Password).
