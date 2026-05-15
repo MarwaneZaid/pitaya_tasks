@@ -25,7 +25,7 @@ Utilisez cette liste pour une mise en production **sans surprise**. Cochez au fu
     - Production : `https://www.dailydo-saas.app`, `https://dailydo-saas.app` (apex si utilisé)  
     - Préprod Vercel : `https://<nom>-<team>.vercel.app`  
     - Développement : `http://localhost:5173`, `http://localhost:5174`, `http://127.0.0.1:5173`, `http://127.0.0.1:5174` (selon le port affiché par `npm run dev`)
-- Flux **équipe / code d’invitation** sans e-mail classique : **Authentication → Providers** → activer **Anonymous** (sinon l’inscription équipe côté app peut échouer).
+- Flux **équipe (code seul, sans mot de passe)** : **Authentication → Providers** → activer **Anonymous** (obligatoire). Les employés entrent uniquement le code à 8 caractères ; la session est conservée sur l’appareil.
 - **Confirm email** (**Authentication → Providers → Email**) : désactivé = pratique pour **dev / tests** sans boîte mail ; en **production** avec exigence de vérification, laisser **Confirm email** activé et compléter les Redirect URLs pour les liens de confirmation.
 - Optionnel : variable `VITE_APP_ORIGIN` dans le build (voir `.env.example`) — doit correspondre à une **Redirect URL** autorisée si votre flux d’auth en dépend.
 

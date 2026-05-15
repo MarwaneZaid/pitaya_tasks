@@ -105,8 +105,13 @@ export default function Dashboard({ onResetConfig }) {
     const hydrateSession = async (session) => {
       if (shouldSkipDuplicateHydrate(session)) return;
       try {
-        setUserName(session.user.email);
         const metaName = session.user.user_metadata?.restaurant_name || '';
+        const memberLabel = session.user.user_metadata?.member_display_name;
+        setUserName(
+          memberLabel ||
+            (session.user.is_anonymous ? 'Équipe' : session.user.email) ||
+            'Équipe'
+        );
         setOnboardingDefaultName(metaName);
         const resto = await getUserRestaurant();
         if (!resto) {
@@ -179,8 +184,11 @@ export default function Dashboard({ onResetConfig }) {
 
   useEffect(() => {
     if (!postAuthPending) return undefined;
-    /** Filet de sécurité si l’hydratation reste bloquée (réseau très lent) — doit rester > budget auth + 1er chargement tâches. */
-    const t = setTimeout(() => setPostAuthPending(false), 90000);
+    /** Filet de sécurité si l’hydratation reste bloquée (ne devrait plus arriver : onEnter a un finally). */
+    const t = setTimeout(() => {
+      setPostAuthPending(false);
+      setLoading(false);
+    }, 25000);
     return () => clearTimeout(t);
   }, [postAuthPending]);
 
@@ -435,11 +443,41 @@ export default function Dashboard({ onResetConfig }) {
           authScreenUnlockedRef.current = true;
           setIsNameSet(true);
           setPostAuthPending(true);
-          if (supabase) {
-            const { data: { session } } = await supabase.auth.getSession();
+          try {
+            clearRestaurantCache();
+            if (!supabase) {
+              authScreenUnlockedRef.current = false;
+              setIsNameSet(false);
+              return;
+            }
+            let session = (await supabase.auth.getSession()).data?.session ?? null;
+            if (!session) {
+              await new Promise((resolve) => {
+                setTimeout(resolve, 250);
+              });
+              session = (await supabase.auth.getSession()).data?.session ?? null;
+            }
             if (session && hydrateSessionRef.current) {
               await hydrateSessionRef.current(session);
+            } else {
+              authScreenUnlockedRef.current = false;
+              setIsNameSet(false);
+              showToast({
+                message:
+                  'Session introuvable après connexion. Réessayez ou videz le stockage du site (page clear-dailydo-storage).',
+                variant: 'error',
+              });
             }
+          } catch (e) {
+            console.error(e);
+            authScreenUnlockedRef.current = false;
+            setIsNameSet(false);
+            showToast({
+              message: e?.message || 'Impossible de finaliser la connexion.',
+              variant: 'error',
+            });
+          } finally {
+            setPostAuthPending(false);
           }
         }}
       />
