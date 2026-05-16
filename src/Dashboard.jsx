@@ -440,15 +440,11 @@ export default function Dashboard({ onResetConfig }) {
     return (
       <LoginScreen
         onEnter={async () => {
-          authScreenUnlockedRef.current = true;
-          setIsNameSet(true);
           setPostAuthPending(true);
           try {
             clearRestaurantCache();
             if (!supabase) {
-              authScreenUnlockedRef.current = false;
-              setIsNameSet(false);
-              return;
+              throw new Error("Supabase n'est pas configuré.");
             }
             let session = (await supabase.auth.getSession()).data?.session ?? null;
             if (!session) {
@@ -457,25 +453,25 @@ export default function Dashboard({ onResetConfig }) {
               });
               session = (await supabase.auth.getSession()).data?.session ?? null;
             }
-            if (session && hydrateSessionRef.current) {
-              await hydrateSessionRef.current(session);
-            } else {
-              authScreenUnlockedRef.current = false;
-              setIsNameSet(false);
-              showToast({
-                message:
-                  'Session introuvable après connexion. Réessayez ou videz le stockage du site (page clear-dailydo-storage).',
-                variant: 'error',
-              });
+            if (!session || !hydrateSessionRef.current) {
+              throw new Error(
+                'Session introuvable après connexion. Réessayez ou videz le stockage du site (page clear-dailydo-storage).'
+              );
             }
+            // Hydrater avant de quitter l’écran login (évite « The operation was aborted »).
+            await hydrateSessionRef.current(session);
+            authScreenUnlockedRef.current = true;
+            setIsNameSet(true);
           } catch (e) {
             console.error(e);
             authScreenUnlockedRef.current = false;
             setIsNameSet(false);
-            showToast({
-              message: e?.message || 'Impossible de finaliser la connexion.',
-              variant: 'error',
-            });
+            const raw = (e?.message || '').toLowerCase();
+            const message = raw.includes('aborted') || raw.includes('abort')
+              ? 'Connexion interrompue. Réessayez une fois sans recharger la page.'
+              : e?.message || 'Impossible de finaliser la connexion.';
+            showToast({ message, variant: 'error' });
+            throw e;
           } finally {
             setPostAuthPending(false);
           }

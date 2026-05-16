@@ -181,7 +181,10 @@ export default function LoginScreen({ onEnter }) {
       await onEnter();
     } catch (err) {
       console.error(err);
-      setError(mapAuthErrorMessage(err));
+      const msg = (err?.message || '').toLowerCase();
+      if (!msg.includes('aborted') && !msg.includes('abort')) {
+        setError(mapAuthErrorMessage(err));
+      }
     } finally {
       submitInFlightRef.current = false;
       setLoading(false);
@@ -197,7 +200,6 @@ export default function LoginScreen({ onEnter }) {
     setLoading(true);
     setError(null);
 
-    let shouldEnter = false;
     try {
       if (!supabase) {
         throw new Error("Supabase n'est pas configuré. Vérifiez les variables d'environnement.");
@@ -205,7 +207,7 @@ export default function LoginScreen({ onEnter }) {
 
       if (isLogin) {
         await runLoginWithRememberedFirst(name, password);
-        shouldEnter = true;
+        await onEnter();
       } else {
         const { data: signUpData, error: signUpError } = await withTimeout(
           supabase.auth.signUp({
@@ -232,7 +234,7 @@ export default function LoginScreen({ onEnter }) {
           setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous.');
           return;
         }
-        shouldEnter = true;
+        await onEnter();
       }
     } catch (err) {
       console.error(err);
@@ -242,14 +244,15 @@ export default function LoginScreen({ onEnter }) {
       } else if (isInvalidCredentialsError(err)) {
         setError('Identifiant ou mot de passe incorrect.');
       } else {
-        setError(mapAuthErrorMessage(err));
+        const msg = (err?.message || '').toLowerCase();
+        if (!msg.includes('aborted') && !msg.includes('abort')) {
+          setError(mapAuthErrorMessage(err));
+        }
       }
     } finally {
       submitInFlightRef.current = false;
       setLoading(false);
     }
-
-    if (shouldEnter) await onEnter();
   };
 
   const switchFlow = (next) => {
