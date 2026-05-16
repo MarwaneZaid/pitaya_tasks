@@ -462,9 +462,14 @@ export default function Dashboard({ onResetConfig }) {
             }
             if (!session) {
               await new Promise((resolve) => {
-                setTimeout(resolve, 400);
+                setTimeout(resolve, 600);
               });
               session = (await supabase.auth.getSession()).data?.session ?? null;
+            }
+            if (session) {
+              await new Promise((resolve) => {
+                setTimeout(resolve, 150);
+              });
             }
             if (!session || !hydrateSessionRef.current) {
               throw new Error(

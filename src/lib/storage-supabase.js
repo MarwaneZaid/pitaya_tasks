@@ -35,13 +35,26 @@ function getConfig() {
 
 export let supabase = null;
 
+/**
+ * Contourne navigator.locks (souvent « signal is aborted without a reason » sur Safari / mobile
+ * quand signIn, getSession et onAuthStateChange se chevauchent).
+ */
+async function authLockNoWebLocks(_name, _acquireTimeout, fn) {
+  return fn();
+}
+
 export function getSupabase() {
   if (supabase) return supabase;
   try {
     const { url, anonKey } = getConfig();
     if (!url || !anonKey || String(anonKey).startsWith('REMPLACER')) return null;
     supabase = createClient(url, anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true },
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        lock: authLockNoWebLocks,
+        lockAcquireTimeout: 60000,
+      },
     });
     return supabase;
   } catch (e) {

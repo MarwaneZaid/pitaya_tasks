@@ -6,13 +6,19 @@ function getClient() {
   return getSupabase() || supabase;
 }
 
-/** Valide le JWT auprès du serveur Auth (évite les RPC avec une session locale orpheline ou un mauvais projet). */
+/** Valide la session (getUser serveur si possible ; sinon JWT local — évite abort mobile). */
 async function assertAuthUserSynced(client) {
-  const { data: { user }, error } = await client.auth.getUser();
-  if (error || !user?.id) {
+  const { data: { session } } = await client.auth.getSession();
+  if (!session?.user?.id) {
     throw new Error('Session invalide ou expirée. Déconnectez-vous et reconnectez-vous.');
   }
-  return user;
+  try {
+    const { data: { user }, error } = await client.auth.getUser();
+    if (!error && user?.id) return user;
+  } catch (e) {
+    if (!isAuthAbortedError(e)) throw e;
+  }
+  return session.user;
 }
 
 function rethrowMappedDbError(err) {
@@ -104,35 +110,11 @@ export function clearRestaurantCache() {
   inflightUserRestaurant = null;
 }
 
-async function authGetUserWithRetry(client, maxAttempts = 4) {
-  let lastError;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    try {
-      const { data: { user }, error } = await client.auth.getUser();
-      if (error) throw error;
-      if (user?.id) return user;
-      throw new Error('Utilisateur Auth introuvable');
-    } catch (e) {
-      lastError = e;
-      if (!isAuthAbortedError(e) || attempt >= maxAttempts - 1) throw e;
-      await sleepMs(250 * (attempt + 1));
-    }
-  }
-  throw lastError;
-}
-
 export async function getUserRestaurant() {
   const client = getClient();
   if (!client) return null;
   const { data: { session } } = await client.auth.getSession();
-  if (!session) return null;
-  // Valide le JWT côté serveur (utile juste après signIn sur mobile).
-  try {
-    await authGetUserWithRetry(client);
-  } catch (e) {
-    if (isAuthAbortedError(e)) throw e;
-    return null;
-  }
+  if (!session?.user?.id) return null;
 
   if (
     cachedRestaurant &&
@@ -143,13 +125,22 @@ export async function getUserRestaurant() {
 
   if (inflightUserRestaurant) return inflightUserRestaurant;
 
+  const userId = session.user.id;
   inflightUserRestaurant = (async () => {
-    try {
-      return fetchRestaurantByUserId(client, session.user.id);
-    } finally {
-      inflightUserRestaurant = null;
+    let lastError;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        return await fetchRestaurantByUserId(client, userId);
+      } catch (e) {
+        lastError = e;
+        if (!isAuthAbortedError(e) || attempt >= 3) throw e;
+        await sleepMs(350 * (attempt + 1));
+      }
     }
-  })();
+    throw lastError;
+  })().finally(() => {
+    inflightUserRestaurant = null;
+  });
 
   return inflightUserRestaurant;
 }
