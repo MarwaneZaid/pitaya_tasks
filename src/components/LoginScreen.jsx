@@ -13,6 +13,8 @@ import {
   saveLastAuthEmail,
   slugFromRestaurantName,
   domainFromEmail,
+  isAuthAbortedError,
+  sleepMs,
 } from '../lib/authPrefs';
 
 /** Délai max par tentative Auth (sign-in / sign-up). Les appels peuvent être longs (TLS, mobile, proxy). */
@@ -55,8 +57,8 @@ function mapAuthErrorMessage(error) {
   if (normalized.includes('connexion trop lente') || normalized.includes('délai dépassé')) {
     return 'Le serveur d’authentification met trop longtemps à répondre. Vérifiez la connexion, un VPN ou un pare-feu, l’URL du projet Supabase dans .env, puis réessayez. Si le problème continue, ouvrez le dashboard Supabase pour vérifier que le projet est actif.';
   }
-  if (normalized.includes('aborted') || normalized.includes('abort')) {
-    return 'Connexion interrompue. Réessayez une fois.';
+  if (normalized.includes('aborted') || normalized.includes('abort') || normalized.includes('without a reason')) {
+    return 'Connexion interrompue (réseau ou navigateur). Réessayez une fois, sans changer d’onglet.';
   }
   return raw || "Une erreur est survenue";
 }
@@ -79,33 +81,53 @@ async function withTimeout(
   }
 }
 
+async function signInWithPasswordOnce(email, password) {
+  const maxTries = 3;
+  for (let i = 0; i < maxTries; i += 1) {
+    try {
+      return await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        'Connexion trop lente. Réessayez dans quelques secondes.',
+        AUTH_SIGNIN_ATTEMPT_MS
+      );
+    } catch (e) {
+      if (isAuthAbortedError(e) && i < maxTries - 1) {
+        await sleepMs(350 * (i + 1));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('Connexion interrompue. Réessayez.');
+}
+
+function sessionFromSignInData(data) {
+  return data?.session ?? null;
+}
+
 async function signInRememberedEmailFirst(name, userPassword) {
   const stored = readLastAuthEmail();
-  if (!stored || !stored.includes('@')) return 'fallback';
+  if (!stored || !stored.includes('@')) return { status: 'fallback' };
 
   const inputSlug = slugFromRestaurantName(name);
   const storedLocal = stored.split('@')[0].toLowerCase();
-  if (storedLocal !== inputSlug) return 'fallback';
+  if (storedLocal !== inputSlug) return { status: 'fallback' };
 
   try {
-    const { data, error } = await withTimeout(
-      supabase.auth.signInWithPassword({ email: stored, password: userPassword }),
-      'Connexion trop lente. Réessayez dans quelques secondes.',
-      AUTH_SIGNIN_ATTEMPT_MS
-    );
+    const { data, error } = await signInWithPasswordOnce(stored, userPassword);
     if (!error) {
       const em = data?.session?.user?.email || data?.user?.email;
       if (em) saveLastAuthEmail(em);
       const d = domainFromEmail(em || stored);
       if (d === AUTH_DOMAIN || d === AUTH_DOMAIN_LEGACY) savePreferredAuthDomain(d);
-      return 'ok';
+      return { status: 'ok', session: sessionFromSignInData(data) };
     }
-    if (isInvalidCredentialsError(error)) return 'invalid';
-    return 'fallback';
+    if (isInvalidCredentialsError(error)) return { status: 'invalid' };
+    return { status: 'fallback' };
   } catch (e) {
-    if (isInvalidCredentialsError(e)) return 'invalid';
+    if (isInvalidCredentialsError(e)) return { status: 'invalid' };
     const msg = (e?.message || '').toLowerCase();
-    if (msg.includes('connexion trop lente')) return 'fallback';
+    if (msg.includes('connexion trop lente')) return { status: 'fallback' };
     throw e;
   }
 }
@@ -113,43 +135,43 @@ async function signInRememberedEmailFirst(name, userPassword) {
 async function signInWithFallbackDomains(name, userPassword) {
   const preferred = readPreferredAuthDomain();
   const secondary = preferred === AUTH_DOMAIN ? AUTH_DOMAIN_LEGACY : AUTH_DOMAIN;
-  const attempts = [preferred, secondary];
+  const domains = [preferred, secondary];
 
   let lastError = null;
 
-  for (const domain of attempts) {
+  for (const domain of domains) {
     const email = emailFromRestaurantName(name, domain);
-    const { data, error: signInError } = await withTimeout(
-      supabase.auth.signInWithPassword({ email, password: userPassword }),
-      'Connexion trop lente. Réessayez dans quelques secondes.',
-      AUTH_SIGNIN_ATTEMPT_MS
-    );
+    const { data, error: signInError } = await signInWithPasswordOnce(email, userPassword);
     if (!signInError) {
       savePreferredAuthDomain(domain);
       const em = data?.session?.user?.email || data?.user?.email;
       if (em) saveLastAuthEmail(em);
-      return;
+      const session = sessionFromSignInData(data);
+      if (session) return session;
+      throw new Error('Session introuvable après connexion.');
     }
     lastError = signInError;
     if (!isInvalidCredentialsError(signInError)) {
       throw signInError;
     }
+    await sleepMs(200);
   }
 
   if (lastError) throw lastError;
+  throw new Error('Invalid login credentials');
 }
 
 async function runLoginWithRememberedFirst(name, userPassword) {
   const remembered = await signInRememberedEmailFirst(name, userPassword);
-  if (remembered === 'ok') return;
-  if (remembered === 'invalid') {
+  if (remembered.status === 'ok' && remembered.session) return remembered.session;
+  if (remembered.status === 'invalid') {
     throw new Error('Invalid login credentials');
   }
-  await signInWithFallbackDomains(name, userPassword);
+  return signInWithFallbackDomains(name, userPassword);
 }
 
 /** Connexion gérant (nom + mot de passe). Équipe : code seul via enterTeamWithInviteCode. */
-export default function LoginScreen({ onEnter }) {
+export default function LoginScreen({ onEnter, onAuthFlowStart, onAuthFlowEnd }) {
   const [flow, setFlow] = useState('owner');
   const [isLogin, setIsLogin] = useState(true);
   const [identifier, setIdentifier] = useState('');
@@ -167,6 +189,7 @@ export default function LoginScreen({ onEnter }) {
     submitInFlightRef.current = true;
     setLoading(true);
     setError(null);
+    onAuthFlowStart?.();
 
     try {
       if (!supabase) {
@@ -178,14 +201,13 @@ export default function LoginScreen({ onEnter }) {
         AUTH_SIGNIN_ATTEMPT_MS
       );
       clearRestaurantCache();
-      await onEnter();
+      const { data: { session } } = await supabase.auth.getSession();
+      await onEnter({ session });
     } catch (err) {
       console.error(err);
-      const msg = (err?.message || '').toLowerCase();
-      if (!msg.includes('aborted') && !msg.includes('abort')) {
-        setError(mapAuthErrorMessage(err));
-      }
+      setError(mapAuthErrorMessage(err));
     } finally {
+      onAuthFlowEnd?.();
       submitInFlightRef.current = false;
       setLoading(false);
     }
@@ -199,6 +221,7 @@ export default function LoginScreen({ onEnter }) {
     submitInFlightRef.current = true;
     setLoading(true);
     setError(null);
+    onAuthFlowStart?.();
 
     try {
       if (!supabase) {
@@ -206,8 +229,8 @@ export default function LoginScreen({ onEnter }) {
       }
 
       if (isLogin) {
-        await runLoginWithRememberedFirst(name, password);
-        await onEnter();
+        const session = await runLoginWithRememberedFirst(name, password);
+        await onEnter({ session });
       } else {
         const { data: signUpData, error: signUpError } = await withTimeout(
           supabase.auth.signUp({
@@ -234,7 +257,7 @@ export default function LoginScreen({ onEnter }) {
           setError('Vérifiez votre boîte mail : ouvrez le lien de confirmation, puis reconnectez-vous.');
           return;
         }
-        await onEnter();
+        await onEnter({ session: signUpData.session });
       }
     } catch (err) {
       console.error(err);
@@ -244,12 +267,10 @@ export default function LoginScreen({ onEnter }) {
       } else if (isInvalidCredentialsError(err)) {
         setError('Identifiant ou mot de passe incorrect.');
       } else {
-        const msg = (err?.message || '').toLowerCase();
-        if (!msg.includes('aborted') && !msg.includes('abort')) {
-          setError(mapAuthErrorMessage(err));
-        }
+        setError(mapAuthErrorMessage(err));
       }
     } finally {
+      onAuthFlowEnd?.();
       submitInFlightRef.current = false;
       setLoading(false);
     }

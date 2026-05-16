@@ -1,4 +1,5 @@
 import { supabase, getSupabase } from './storage-supabase';
+import { isAuthAbortedError, sleepMs } from './authPrefs';
 import { mergeTasksWithUpsertRows } from './saveTasksMerge';
 
 function getClient() {
@@ -103,15 +104,33 @@ export function clearRestaurantCache() {
   inflightUserRestaurant = null;
 }
 
+async function authGetUserWithRetry(client, maxAttempts = 4) {
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const { data: { user }, error } = await client.auth.getUser();
+      if (error) throw error;
+      if (user?.id) return user;
+      throw new Error('Utilisateur Auth introuvable');
+    } catch (e) {
+      lastError = e;
+      if (!isAuthAbortedError(e) || attempt >= maxAttempts - 1) throw e;
+      await sleepMs(250 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 export async function getUserRestaurant() {
   const client = getClient();
   if (!client) return null;
   const { data: { session } } = await client.auth.getSession();
   if (!session) return null;
-  // Valide le JWT côté serveur (utile juste après signUp + join par code).
+  // Valide le JWT côté serveur (utile juste après signIn sur mobile).
   try {
-    await client.auth.getUser();
-  } catch (_) {
+    await authGetUserWithRetry(client);
+  } catch (e) {
+    if (isAuthAbortedError(e)) throw e;
     return null;
   }
 

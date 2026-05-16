@@ -86,6 +86,8 @@ export default function Dashboard({ onResetConfig }) {
   const loadTasksInFlightRef = useRef(null);
   /** false sur l’écran login : évite onAuthStateChange pendant signUp/signIn (fetch « aborted »). */
   const authScreenUnlockedRef = useRef(false);
+  /** true pendant signIn + onEnter : bloque les hydratations parallèles (Safari mobile). */
+  const authFlowInProgressRef = useRef(false);
   const hydrateSessionRef = useRef(null);
 
   // ─── Auth & session ──────────────────────────────────────────────────────────
@@ -157,6 +159,7 @@ export default function Dashboard({ onResetConfig }) {
 
     if (supabase) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (authFlowInProgressRef.current) return;
         if (session) {
           if (authScreenUnlockedRef.current) {
             await hydrateSession(session);
@@ -439,17 +442,27 @@ export default function Dashboard({ onResetConfig }) {
   if (!isNameSet) {
     return (
       <LoginScreen
-        onEnter={async () => {
+        onAuthFlowStart={() => {
+          authFlowInProgressRef.current = true;
+        }}
+        onAuthFlowEnd={() => {
+          authFlowInProgressRef.current = false;
+        }}
+        onEnter={async ({ session: loginSession } = {}) => {
+          authFlowInProgressRef.current = true;
           setPostAuthPending(true);
           try {
             clearRestaurantCache();
             if (!supabase) {
               throw new Error("Supabase n'est pas configuré.");
             }
-            let session = (await supabase.auth.getSession()).data?.session ?? null;
+            let session = loginSession ?? null;
+            if (!session) {
+              session = (await supabase.auth.getSession()).data?.session ?? null;
+            }
             if (!session) {
               await new Promise((resolve) => {
-                setTimeout(resolve, 250);
+                setTimeout(resolve, 400);
               });
               session = (await supabase.auth.getSession()).data?.session ?? null;
             }
@@ -458,21 +471,20 @@ export default function Dashboard({ onResetConfig }) {
                 'Session introuvable après connexion. Réessayez ou videz le stockage du site (page clear-dailydo-storage).'
               );
             }
-            // Hydrater avant de quitter l’écran login (évite « The operation was aborted »).
             await hydrateSessionRef.current(session);
             authScreenUnlockedRef.current = true;
-            setIsNameSet(true);
           } catch (e) {
             console.error(e);
             authScreenUnlockedRef.current = false;
             setIsNameSet(false);
             const raw = (e?.message || '').toLowerCase();
-            const message = raw.includes('aborted') || raw.includes('abort')
-              ? 'Connexion interrompue. Réessayez une fois sans recharger la page.'
+            const message = raw.includes('abort') || raw.includes('without a reason')
+              ? 'Connexion interrompue (réseau ou navigateur). Réessayez une fois, sans changer d’onglet.'
               : e?.message || 'Impossible de finaliser la connexion.';
             showToast({ message, variant: 'error' });
             throw e;
           } finally {
+            authFlowInProgressRef.current = false;
             setPostAuthPending(false);
           }
         }}

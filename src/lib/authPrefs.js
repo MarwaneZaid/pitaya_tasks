@@ -60,3 +60,15 @@ export function domainFromEmail(email) {
   if (i < 0 || i === s.length - 1) return '';
   return s.slice(i + 1).toLowerCase();
 }
+
+/** Safari / mobile : requête Auth annulée (souvent course entre signIn et onAuthStateChange). */
+export function isAuthAbortedError(error) {
+  const m = (error?.message || String(error || '')).toLowerCase();
+  return m.includes('abort') || m.includes('without a reason');
+}
+
+export function sleepMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}

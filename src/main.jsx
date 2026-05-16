@@ -37,10 +37,12 @@ try {
   console.error('Storage init error:', e);
 }
 
+const app = (
+  <ToastProvider>
+    <App />
+  </ToastProvider>
+);
+
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <ToastProvider>
-      <App />
-    </ToastProvider>
-  </StrictMode>
+  import.meta.env.DEV ? <StrictMode>{app}</StrictMode> : app
 );
