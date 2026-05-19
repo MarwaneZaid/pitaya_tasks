@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Plus, Trash2, CheckCircle2, Users, ChefHat, AlertCircle,
-  RefreshCw, Wifi, Edit, User, LogOut, Database, Calendar,
+  RefreshCw, Wifi, Edit, User, LogOut, Database, Calendar, Bell,
 } from 'lucide-react';
 import {
   USER_NAME_KEY,
@@ -14,6 +14,18 @@ import {
 import { applyAnnexeRollover } from './lib/taskRollover';
 import { buildQuotidienTasksForDate } from './lib/planningDay';
 import { shouldShowEndOfDayReminder } from './lib/reminder';
+import {
+  buildPlannedTasksNotification,
+  getNotificationPermission,
+  shouldFireDailyNotification,
+  showPlannedTasksNotification,
+} from './lib/taskNotifications';
+import {
+  readNotificationEnabled,
+  readNotificationHour,
+  readLastNotificationDate,
+  saveLastNotificationDate,
+} from './lib/notificationPrefs';
 import {
   isSupabaseConfigured,
   isSupabaseEmbeddedInBuild,
@@ -36,6 +48,7 @@ import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
 import TeamModal from './components/TeamModal';
 import YearCalendarPlanner from './components/YearCalendarPlanner';
+import NotificationSettings from './components/NotificationSettings';
 import StatsBar from './components/StatsBar';
 import PlanningCard from './components/PlanningCard';
 import TaskItem from './components/TaskItem';
@@ -82,6 +95,7 @@ export default function Dashboard({ onResetConfig }) {
   const [showTeam, setShowTeam] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
   const [showYearCalendar, setShowYearCalendar] = useState(false);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const realtimeChannelRef = useRef(null);
   /** Évite double getUserRestaurant + loadTasks quand getSession() et onAuthStateChange arrivent à la suite (latence reconnexion). */
   const sessionHydrateBurstRef = useRef({ uid: null, at: 0 });
@@ -225,6 +239,43 @@ export default function Dashboard({ onResetConfig }) {
       setShowEndOfDayReminder(true);
     }
   }, [tasks, loading, reminderDismissed]);
+
+  const tryPlannedTasksNotification = useMemo(
+    () => () => {
+      const enabled = readNotificationEnabled();
+      if (!enabled || getNotificationPermission() !== 'granted' || loading) return;
+      const today = getTodayDate();
+      const hour = new Date().getHours();
+      if (
+        !shouldFireDailyNotification({
+          todayYmd: today,
+          currentHour: hour,
+          reminderHour: readNotificationHour(),
+          lastFiredYmd: readLastNotificationDate(),
+          enabled: true,
+        })
+      ) {
+        return;
+      }
+      const payload = buildPlannedTasksNotification(
+        tasks,
+        today,
+        planningConfig?.siteName || DEFAULT_SITE_NAME
+      );
+      if (!payload) return;
+      if (showPlannedTasksNotification(payload)) {
+        saveLastNotificationDate(today);
+      }
+    },
+    [tasks, planningConfig, loading]
+  );
+
+  useEffect(() => {
+    if (!isNameSet || loading) return undefined;
+    tryPlannedTasksNotification();
+    const intervalId = setInterval(tryPlannedTasksNotification, 15 * 60 * 1000);
+    return () => clearInterval(intervalId);
+  }, [isNameSet, loading, tryPlannedTasksNotification]);
 
   // ─── Chargement des tâches ────────────────────────────────────────────────────
   const loadTasks = async ({ mode = 'full' } = {}) => {
@@ -614,6 +665,16 @@ export default function Dashboard({ onResetConfig }) {
                 <Calendar className="w-5 h-5" aria-hidden />
               </button>
 
+              <button
+                type="button"
+                onClick={() => setShowNotificationSettings(true)}
+                className="p-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                title="Notifications des tâches planifiées"
+                aria-label="Paramètres des notifications"
+              >
+                <Bell className="w-5 h-5" aria-hidden />
+              </button>
+
               {/* Équipe (manager+) */}
               {isManager && (
                 <button
@@ -704,6 +765,12 @@ export default function Dashboard({ onResetConfig }) {
           userName={userName}
           isManager={isManager}
           onTasksChanged={() => loadTasks()}
+        />
+
+        <NotificationSettings
+          isOpen={showNotificationSettings}
+          onClose={() => setShowNotificationSettings(false)}
+          onPrefsChange={tryPlannedTasksNotification}
         />
 
         <div className="space-y-4">
