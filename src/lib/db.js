@@ -273,6 +273,23 @@ export async function savePlanningConfig(config) {
   if (error) throw error;
 }
 
+function mapTaskRows(data) {
+  return (data || []).map((t) => ({
+    id: t.id,
+    title: t.title,
+    category: t.category,
+    priority: t.priority,
+    taskType: t.task_type,
+    scheduledFor: t.scheduled_for,
+    assignedTo: t.assigned_to,
+    completed: t.completed,
+    createdAt: t.created_at,
+    createdBy: t.created_by,
+    completedAt: t.completed_at,
+    completedBy: t.completed_by,
+  }));
+}
+
 export async function getTasks(dateFilter = null) {
   const resto = await getUserRestaurant();
   if (!resto) return [];
@@ -294,21 +311,30 @@ export async function getTasks(dateFilter = null) {
     rethrowMappedDbError(error);
   }
 
-  // Adapter le format DB au format Frontend
-  return data.map(t => ({
-    id: t.id,
-    title: t.title,
-    category: t.category,
-    priority: t.priority,
-    taskType: t.task_type,
-    scheduledFor: t.scheduled_for,
-    assignedTo: t.assigned_to,
-    completed: t.completed,
-    createdAt: t.created_at,
-    createdBy: t.created_by,
-    completedAt: t.completed_at,
-    completedBy: t.completed_by
-  }));
+  return mapTaskRows(data);
+}
+
+/** Tâches planifiées entre deux dates incluses (YYYY-MM-DD). */
+export async function getTasksInRange(startDate, endDate) {
+  const resto = await getUserRestaurant();
+  if (!resto) return [];
+  const client = getClient();
+  if (!client) return [];
+
+  const { data, error } = await client
+    .from('tasks')
+    .select('*')
+    .eq('restaurant_id', resto.id)
+    .gte('scheduled_for', startDate)
+    .lte('scheduled_for', endDate)
+    .order('scheduled_for', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    rethrowMappedDbError(error);
+  }
+
+  return mapTaskRows(data);
 }
 
 export async function saveTask(task) {

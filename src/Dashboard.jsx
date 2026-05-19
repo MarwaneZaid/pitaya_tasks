@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Plus, Trash2, CheckCircle2, Users, ChefHat, AlertCircle,
-  RefreshCw, Wifi, Edit, User, LogOut, Database
+  RefreshCw, Wifi, Edit, User, LogOut, Database, Calendar,
 } from 'lucide-react';
-import { JOURS } from './config/planning';
 import {
   USER_NAME_KEY,
   DEFAULT_SITE_NAME,
@@ -13,6 +12,7 @@ import {
   TASK_TYPE_SEMAINE,
 } from './config/constants';
 import { applyAnnexeRollover } from './lib/taskRollover';
+import { buildQuotidienTasksForDate } from './lib/planningDay';
 import { shouldShowEndOfDayReminder } from './lib/reminder';
 import {
   isSupabaseConfigured,
@@ -35,6 +35,7 @@ import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
 import TeamModal from './components/TeamModal';
+import YearCalendarPlanner from './components/YearCalendarPlanner';
 import StatsBar from './components/StatsBar';
 import PlanningCard from './components/PlanningCard';
 import TaskItem from './components/TaskItem';
@@ -80,6 +81,7 @@ export default function Dashboard({ onResetConfig }) {
   const [onboardingDefaultName, setOnboardingDefaultName] = useState('');
   const [showTeam, setShowTeam] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showYearCalendar, setShowYearCalendar] = useState(false);
   const realtimeChannelRef = useRef(null);
   /** Évite double getUserRestaurant + loadTasks quand getSession() et onAuthStateChange arrivent à la suite (latence reconnexion). */
   const sessionHydrateBurstRef = useRef({ uid: null, at: 0 });
@@ -266,21 +268,18 @@ export default function Dashboard({ onResetConfig }) {
         }
 
         if (!isFirstTime && currentConfig) {
-          const jour = JOURS[new Date().getDay()];
-          const tasksDuJour = (currentConfig.planning?.[jour] || []).filter(t => t.title && String(t.title).trim());
-          if (tasksDuJour.length > 0) {
-            const existing = new Set(list.filter(t => !t.completed || t.scheduledFor === today).map(t => t.title));
-            const toAdd = tasksDuJour.filter(t => !existing.has(t.title.trim()));
-            if (toAdd.length > 0) {
-              const newTasks = toAdd.map(item => ({
-                title: (item.title || '').trim(), category: 'nettoyage',
-                priority: item.priority || 'moyenne', taskType: TASK_TYPE_QUOTIDIEN,
-                scheduledFor: today, assignedTo: '', deadline: '', completed: false,
-                createdBy: userName || 'Système',
-              }));
-              const savedTasks = await saveTasks(newTasks);
-              list.push(...savedTasks);
-            }
+          const existing = new Set(
+            list.filter((t) => !t.completed || t.scheduledFor === today).map((t) => t.title)
+          );
+          const newTasks = buildQuotidienTasksForDate(
+            currentConfig,
+            today,
+            existing,
+            userName || 'Système'
+          );
+          if (newTasks.length > 0) {
+            const savedTasks = await saveTasks(newTasks);
+            list.push(...savedTasks);
           }
         }
 
@@ -605,6 +604,16 @@ export default function Dashboard({ onResetConfig }) {
                 <RefreshCw className="w-5 h-5" aria-hidden />
               </button>
 
+              <button
+                type="button"
+                onClick={() => setShowYearCalendar(true)}
+                className="p-2 rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100"
+                title="Calendrier annuel"
+                aria-label="Ouvrir le calendrier de planification"
+              >
+                <Calendar className="w-5 h-5" aria-hidden />
+              </button>
+
               {/* Équipe (manager+) */}
               {isManager && (
                 <button
@@ -686,6 +695,15 @@ export default function Dashboard({ onResetConfig }) {
           isOpen={showTeam}
           onClose={() => setShowTeam(false)}
           onJoined={() => { setShowTeam(false); loadTasks(); }}
+        />
+
+        <YearCalendarPlanner
+          isOpen={showYearCalendar}
+          onClose={() => setShowYearCalendar(false)}
+          planningConfig={planningConfig}
+          userName={userName}
+          isManager={isManager}
+          onTasksChanged={() => loadTasks()}
         />
 
         <div className="space-y-4">
