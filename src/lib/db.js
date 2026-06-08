@@ -1,6 +1,11 @@
 import { supabase, getSupabase } from './storage-supabase';
 import { isAuthAbortedError, sleepMs } from './authPrefs';
 import { mergeTasksWithUpsertRows } from './saveTasksMerge';
+import { statusFromDbRow, normalizeTaskFields } from './taskStatus';
+import {
+  buildTasksFromChecklists,
+  mapChecklistRow,
+} from './checklists';
 
 function getClient() {
   return getSupabase() || supabase;
@@ -273,21 +278,132 @@ export async function savePlanningConfig(config) {
   if (error) throw error;
 }
 
+// ── Checklists opérationnelles ───────────────────────────────────────────────
+
+export async function getChecklistTemplates() {
+  const resto = await getUserRestaurant();
+  if (!resto) return [];
+  const client = getClient();
+  if (!client) return [];
+
+  const { data, error } = await client
+    .from('checklist_templates')
+    .select('*')
+    .eq('restaurant_id', resto.id)
+    .order('sort_order', { ascending: true });
+
+  if (error) {
+    if (error.message?.includes('checklist_templates')) {
+      return [];
+    }
+    rethrowMappedDbError(error);
+  }
+  return (data || []).map(mapChecklistRow);
+}
+
+export async function saveChecklistTemplate(template) {
+  const resto = await getUserRestaurant();
+  if (!resto) throw new Error('Aucun restaurant trouvé');
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+
+  const row = {
+    restaurant_id: resto.id,
+    name: template.name,
+    post: template.post || 'all',
+    recurrence: template.recurrence || 'daily',
+    weekday_keys: template.weekdayKeys || null,
+    items: template.items || [],
+    sort_order: template.sortOrder ?? 0,
+    active: template.active !== false,
+  };
+
+  if (template.id) {
+    const { data, error } = await client
+      .from('checklist_templates')
+      .update(row)
+      .eq('id', template.id)
+      .eq('restaurant_id', resto.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return mapChecklistRow(data);
+  }
+
+  const { data, error } = await client
+    .from('checklist_templates')
+    .insert([row])
+    .select()
+    .single();
+  if (error) throw error;
+  return mapChecklistRow(data);
+}
+
+export async function deleteChecklistTemplate(templateId) {
+  const client = getClient();
+  if (!client || !templateId) return;
+  const { error } = await client.from('checklist_templates').delete().eq('id', templateId);
+  if (error) rethrowMappedDbError(error);
+}
+
+/** Génère les tâches checklist manquantes pour une date (idempotent). */
+export async function materializeChecklistsForDate(dateYmd, createdBy) {
+  const templates = await getChecklistTemplates();
+  if (templates.length === 0) return [];
+  const existing = await getTasks(dateYmd);
+  const toCreate = buildTasksFromChecklists(templates, dateYmd, existing, createdBy);
+  if (toCreate.length === 0) return [];
+  return saveTasks(toCreate);
+}
+
 function mapTaskRows(data) {
-  return (data || []).map((t) => ({
-    id: t.id,
-    title: t.title,
-    category: t.category,
-    priority: t.priority,
-    taskType: t.task_type,
-    scheduledFor: t.scheduled_for,
-    assignedTo: t.assigned_to,
-    completed: t.completed,
-    createdAt: t.created_at,
-    createdBy: t.created_by,
-    completedAt: t.completed_at,
-    completedBy: t.completed_by,
-  }));
+  return (data || []).map((t) => {
+    const status = statusFromDbRow(t);
+    return {
+      id: t.id,
+      title: t.title,
+      category: t.category,
+      priority: t.priority,
+      taskType: t.task_type,
+      scheduledFor: t.scheduled_for,
+      assignedTo: t.assigned_to,
+      status,
+      completed: status === 'done' || !!t.completed,
+      post: t.post || null,
+      checklistId: t.checklist_id || null,
+      checklistItemKey: t.checklist_item_key || null,
+      startedAt: t.started_at || null,
+      proofNote: t.proof_note || null,
+      createdAt: t.created_at,
+      createdBy: t.created_by,
+      completedAt: t.completed_at,
+      completedBy: t.completed_by,
+    };
+  });
+}
+
+function taskToDbPayload(resto, task) {
+  const norm = normalizeTaskFields(task);
+  const payload = {
+    restaurant_id: resto.id,
+    title: task.title,
+    category: task.category || 'nettoyage',
+    priority: task.priority || 'moyenne',
+    task_type: task.taskType || 'quotidien',
+    scheduled_for: task.scheduledFor,
+    assigned_to: task.assignedTo || null,
+    status: norm.status,
+    completed: norm.completed,
+    created_by: task.createdBy,
+    started_at: norm.startedAt,
+    completed_at: norm.completedAt,
+    completed_by: norm.completedBy,
+    post: task.post || null,
+    checklist_id: task.checklistId || null,
+    checklist_item_key: task.checklistItemKey || null,
+    proof_note: task.proofNote || null,
+  };
+  return payload;
 }
 
 export async function getTasks(dateFilter = null) {
@@ -343,19 +459,7 @@ export async function saveTask(task) {
   const client = getClient();
   if (!client) return null;
 
-  const dbTask = {
-    restaurant_id: resto.id,
-    title: task.title,
-    category: task.category || 'nettoyage',
-    priority: task.priority || 'moyenne',
-    task_type: task.taskType || 'quotidien',
-    scheduled_for: task.scheduledFor,
-    assigned_to: task.assignedTo || null,
-    completed: task.completed || false,
-    created_by: task.createdBy,
-    completed_at: task.completedAt || null,
-    completed_by: task.completedBy || null
-  };
+  const dbTask = taskToDbPayload(resto, task);
 
   const isExisting =
     typeof task.id === 'string' && task.id.length > 20;
@@ -374,7 +478,7 @@ export async function saveTask(task) {
       console.error('Erreur saveTask (update):', error);
       throw error;
     }
-    return { ...task, id: data.id };
+    return mapTaskRows([data])[0];
   }
 
   const { data, error } = await client
@@ -388,7 +492,7 @@ export async function saveTask(task) {
     throw error;
   }
 
-  return { ...task, id: data.id };
+  return mapTaskRows([data])[0];
 }
 
 export async function saveTasks(tasksArray) {
@@ -398,19 +502,7 @@ export async function saveTasks(tasksArray) {
   if (!resto) return [];
 
   const payload = tasksArray.map((task) => {
-    const dbTask = {
-      restaurant_id: resto.id,
-      title: task.title,
-      category: task.category || 'nettoyage',
-      priority: task.priority || 'moyenne',
-      task_type: task.taskType || 'quotidien',
-      scheduled_for: task.scheduledFor,
-      assigned_to: task.assignedTo || null,
-      completed: task.completed || false,
-      created_by: task.createdBy,
-      completed_at: task.completedAt || null,
-      completed_by: task.completedBy || null
-    };
+    const dbTask = taskToDbPayload(resto, task);
     if (typeof task.id === 'string' && task.id.length > 20) {
       dbTask.id = task.id;
     }
@@ -445,7 +537,9 @@ export async function saveTasks(tasksArray) {
     if (data) rows.push(data);
   }
 
-  return mergeTasksWithUpsertRows(tasksArray, payload, rows);
+  const merged = mergeTasksWithUpsertRows(tasksArray, payload, rows);
+  const mappedById = new Map(mapTaskRows(rows).map((row) => [row.id, row]));
+  return merged.map((task) => (task.id && mappedById.get(task.id)) || task);
 }
 
 export async function deleteTask(taskId) {

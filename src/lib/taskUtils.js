@@ -1,3 +1,72 @@
+export function getTodayYmd() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function getYesterdayYmd(todayYmd = getTodayYmd()) {
+  const d = new Date(`${todayYmd}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Date planifiée d’une tâche (YYYY-MM-DD). */
+export function taskScheduledDay(task, fallbackToday = getTodayYmd()) {
+  return task.scheduledFor || (task.createdAt && task.createdAt.slice(0, 10)) || fallbackToday;
+}
+
+export function formatDaySectionLabel(ymd, prefix) {
+  const label = new Date(`${ymd}T12:00:00`).toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+  return `${prefix} — ${label}`;
+}
+
+/**
+ * Sépare les tâches en sections : aujourd’hui, hier, jours plus anciens.
+ */
+export function isTaskDone(task) {
+  return task?.status === 'done' || !!task?.completed;
+}
+
+/** Compteurs pour un jour (calendrier / récap). */
+export function summarizeDayTasks(tasks) {
+  const list = tasks || [];
+  let done = 0;
+  let inProgress = 0;
+  let todo = 0;
+  for (const t of list) {
+    if (isTaskDone(t)) done += 1;
+    else if (t.status === 'in_progress') inProgress += 1;
+    else todo += 1;
+  }
+  const total = list.length;
+  return {
+    total,
+    done,
+    inProgress,
+    todo,
+    pending: inProgress + todo,
+    percent: total > 0 ? Math.round((done / total) * 100) : 0,
+  };
+}
+
+export function groupTasksByDay(tasks, todayYmd = getTodayYmd()) {
+  const yesterdayYmd = getYesterdayYmd(todayYmd);
+  const today = [];
+  const yesterday = [];
+  const other = [];
+
+  for (const task of tasks || []) {
+    const day = taskScheduledDay(task, todayYmd);
+    if (day === todayYmd) today.push(task);
+    else if (day === yesterdayYmd) yesterday.push(task);
+    else other.push(task);
+  }
+
+  return { today, yesterday, other, todayYmd, yesterdayYmd };
+}
+
 export function isUrgent(task) {
   if (!task.deadline || task.completed) return false;
   const deadline = new Date(task.deadline);

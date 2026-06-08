@@ -1,5 +1,7 @@
 .DS_Store
 node_modules
+scripts/.venv-demo
+docs/demo/frames/
 dist
 .env
 .env.local

@@ -1,0 +1,31 @@
+1
+00:00:00,000 --> 00:00:07,000
+DailyDo — Guide manager. Tableau partagé pour équipes restaurant.
+
+2
+00:00:07,000 --> 00:00:14,000
+Connexion Gérant : nom du restaurant + mot de passe. Tâches du jour automatiques. Sync temps réel.
+
+3
+00:00:14,000 --> 00:00:21,000
+Cliquez sur l'icône : À faire → En cours → Terminée. Note/preuve optionnelle en cours.
+
+4
+00:00:21,000 --> 00:00:29,000
+Planning : icône crayon → configurer Lundi à Dimanche. Enregistrer pour génération automatique.
+
+5
+00:00:29,000 --> 00:00:36,000
+Équipe : copier le code à 8 caractères. Employés : onglet Équipe, sans mot de passe.
+
+6
+00:00:36,000 --> 00:00:44,000
+Checklists : modèles Ouverture/Fermeture puis bouton Générer les checklists.
+
+7
+00:00:44,000 --> 00:00:51,000
+Suivi : barre de progression, filtres par poste, bouton Actualiser.
+
+8
+00:00:51,000 --> 00:00:56,000
+DailyDo · www.dailydo-saas.app

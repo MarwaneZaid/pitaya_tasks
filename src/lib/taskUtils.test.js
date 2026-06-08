@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { displayName } from './taskUtils';
+import {
+  displayName,
+  getYesterdayYmd,
+  groupTasksByDay,
+  summarizeDayTasks,
+  taskScheduledDay,
+} from './taskUtils';
 
 /**
  * Logique de filtrage des tâches (répliquée depuis Dashboard pour tester)
@@ -68,6 +74,50 @@ describe('taskUtils (filtrage)', () => {
     const result = getFilteredTasks(tasks, 'my-tasks', 'Alice', TASK_TYPE_ANNEXE);
     expect(result).toHaveLength(2);
     expect(result.every((t) => t.assignedTo === 'Alice')).toBe(true);
+  });
+});
+
+describe('groupTasksByDay', () => {
+  const today = '2026-05-20';
+  const yesterday = '2026-05-19';
+
+  it('sépare aujourd’hui, hier et jours antérieurs', () => {
+    const tasks = [
+      { id: 1, scheduledFor: today, title: 'Aujourd\'hui' },
+      { id: 2, scheduledFor: yesterday, title: 'Hier' },
+      { id: 3, scheduledFor: '2026-05-18', title: 'Avant-hier' },
+    ];
+    const g = groupTasksByDay(tasks, today);
+    expect(g.today).toHaveLength(1);
+    expect(g.yesterday).toHaveLength(1);
+    expect(g.other).toHaveLength(1);
+    expect(g.yesterdayYmd).toBe(yesterday);
+  });
+
+  it('getYesterdayYmd recule d’un jour', () => {
+    expect(getYesterdayYmd('2026-05-20')).toBe('2026-05-19');
+  });
+
+  it('taskScheduledDay utilise createdAt si scheduledFor absent', () => {
+    expect(taskScheduledDay({ createdAt: '2026-05-19T10:00:00Z' }, today)).toBe('2026-05-19');
+  });
+});
+
+describe('summarizeDayTasks', () => {
+  it('compte terminées, en cours et à faire', () => {
+    const s = summarizeDayTasks([
+      { status: 'done', completed: true },
+      { status: 'in_progress', completed: false },
+      { status: 'todo', completed: false },
+    ]);
+    expect(s).toEqual({
+      total: 3,
+      done: 1,
+      inProgress: 1,
+      todo: 1,
+      pending: 2,
+      percent: 33,
+    });
   });
 });
 

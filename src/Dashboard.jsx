@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Plus, Trash2, CheckCircle2, Users, ChefHat, AlertCircle,
-  RefreshCw, Wifi, Edit, User, LogOut, Database, Calendar, Bell,
+  Plus, Users, ChefHat, AlertCircle,
+  RefreshCw, Wifi, Edit, User, LogOut, Database, Calendar, Bell, ClipboardList,
 } from 'lucide-react';
 import {
   USER_NAME_KEY,
@@ -41,7 +41,10 @@ import {
   deleteTasks,
   getPlanningConfig,
   clearRestaurantCache,
+  materializeChecklistsForDate,
 } from './lib/db';
+import { nextStatus, normalizeTaskFields } from './lib/taskStatus';
+import { TASK_STATUS_DONE, OPS_POSTS } from './config/opsConstants';
 import { clearLastAuthEmail } from './lib/authPrefs';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
@@ -51,13 +54,21 @@ import YearCalendarPlanner from './components/YearCalendarPlanner';
 import NotificationSettings from './components/NotificationSettings';
 import StatsBar from './components/StatsBar';
 import PlanningCard from './components/PlanningCard';
-import TaskItem from './components/TaskItem';
 import TaskTypeSelector from './components/TaskTypeSelector';
-import { isUrgent, isOverdue, displayName } from './lib/taskUtils';
+import OpsProgressCard from './components/OpsProgressCard';
+import ChecklistSettings from './components/ChecklistSettings';
+import {
+  isUrgent,
+  isOverdue,
+  displayName,
+  getTodayYmd,
+  groupTasksByDay,
+} from './lib/taskUtils';
+import TaskListByDay from './components/TaskListByDay';
 import { useToast } from './context/ToastContext.jsx';
 
 function getTodayDate() {
-  return new Date().toISOString().slice(0, 10);
+  return getTodayYmd();
 }
 
 // ─── Rôles et permissions ──────────────────────────────────────────────────────
@@ -96,6 +107,9 @@ export default function Dashboard({ onResetConfig }) {
   const [showAddTask, setShowAddTask] = useState(false);
   const [showYearCalendar, setShowYearCalendar] = useState(false);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showChecklistSettings, setShowChecklistSettings] = useState(false);
+  const [generatingChecklists, setGeneratingChecklists] = useState(false);
+  const [postFilter, setPostFilter] = useState('all');
   const realtimeChannelRef = useRef(null);
   /** Évite double getUserRestaurant + loadTasks quand getSession() et onAuthStateChange arrivent à la suite (latence reconnexion). */
   const sessionHydrateBurstRef = useRef({ uid: null, at: 0 });
@@ -332,6 +346,18 @@ export default function Dashboard({ onResetConfig }) {
             const savedTasks = await saveTasks(newTasks);
             list.push(...savedTasks);
           }
+
+          try {
+            const checklistTasks = await materializeChecklistsForDate(
+              today,
+              userName || 'Système'
+            );
+            if (checklistTasks.length > 0) {
+              list.push(...checklistTasks);
+            }
+          } catch (checklistErr) {
+            console.warn('Checklists non matérialisées:', checklistErr);
+          }
         }
 
         setTasks([...list]);
@@ -398,22 +424,71 @@ export default function Dashboard({ onResetConfig }) {
     }
   };
 
-  const toggleTask = async (id) => {
-    const task = tasks.find(t => t.id === id);
+  const advanceTaskStatus = async (id) => {
+    const task = tasks.find((t) => t.id === id);
     if (!task) return;
     const previous = [...tasks];
-    const toggled = {
-      ...task, completed: !task.completed,
-      completedAt: !task.completed ? new Date().toISOString() : null,
-      completedBy: !task.completed ? userName : null,
-    };
-    setTasks(previous.map(t => t.id === id ? toggled : t));
+    const current = task.status || (task.completed ? TASK_STATUS_DONE : 'todo');
+    const next = nextStatus(current);
+    const norm = normalizeTaskFields({
+      ...task,
+      status: next,
+      proofNote: task.proofNote,
+      completedBy: next === TASK_STATUS_DONE ? userName : null,
+    });
+    const updated = { ...task, ...norm };
+    setTasks(previous.map((t) => (t.id === id ? updated : t)));
     try {
-      await saveTask(toggled);
+      const saved = await saveTask(updated);
+      setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
     } catch (e) {
       console.error(e);
       setTasks(previous);
       showToast({ message: 'Impossible de mettre à jour la tâche. Réessayez.', variant: 'error' });
+    }
+  };
+
+  const updateProofNote = async (id, proofNote) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const previous = [...tasks];
+    const updated = { ...task, proofNote: proofNote.trim() || null };
+    setTasks(previous.map((t) => (t.id === id ? updated : t)));
+    try {
+      const saved = await saveTask(updated);
+      setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
+    } catch (e) {
+      console.error(e);
+      setTasks(previous);
+    }
+  };
+
+  const handleGenerateChecklists = async () => {
+    if (generatingChecklists) return;
+    setGeneratingChecklists(true);
+    try {
+      const today = getTodayDate();
+      const added = await materializeChecklistsForDate(today, userName || 'Système');
+      if (added.length === 0) {
+        showToast({
+          message: 'Aucune nouvelle étape à générer (déjà créées ou aucun modèle actif).',
+          variant: 'info',
+        });
+      } else {
+        setTasks((prev) => [...prev, ...added]);
+        showToast({
+          message: `${added.length} étape(s) de checklist ajoutée(s).`,
+          variant: 'success',
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      showToast({
+        message: 'Impossible de générer les checklists. Vérifiez la migration Supabase (phase 1).',
+        variant: 'error',
+      });
+    } finally {
+      setGeneratingChecklists(false);
     }
   };
 
@@ -477,15 +552,29 @@ export default function Dashboard({ onResetConfig }) {
   };
 
   const getFilteredTasks = () => {
+    let list;
     switch (filter) {
-      case 'active':    return tasks.filter(t => !t.completed);
-      case 'completed': return tasks.filter(t => t.completed);
-      case 'my-tasks':  return tasks.filter(t => t.assignedTo === userName);
+      case 'active':
+        list = tasks.filter((t) => !t.completed && t.status !== TASK_STATUS_DONE);
+        break;
+      case 'completed':
+        list = tasks.filter((t) => t.completed || t.status === TASK_STATUS_DONE);
+        break;
+      case 'my-tasks':
+        list = tasks.filter((t) => t.assignedTo === userName);
+        break;
       case TASK_TYPE_QUOTIDIEN:
       case TASK_TYPE_ANNEXE:
-      case TASK_TYPE_SEMAINE: return tasks.filter(t => (t.taskType || TASK_TYPE_ANNEXE) === filter);
-      default: return tasks;
+      case TASK_TYPE_SEMAINE:
+        list = tasks.filter((t) => (t.taskType || TASK_TYPE_ANNEXE) === filter);
+        break;
+      default:
+        list = tasks;
     }
+    if (postFilter !== 'all') {
+      list = list.filter((t) => !t.post || t.post === postFilter || t.post === 'all');
+    }
+    return list;
   };
 
   // ─── Écrans de garde ──────────────────────────────────────────────────────────
@@ -563,13 +652,35 @@ export default function Dashboard({ onResetConfig }) {
   if (needsOnboarding) return <Onboarding defaultName={onboardingDefaultName} onComplete={() => { setNeedsOnboarding(false); loadTasks(); }} />;
 
   const filtered = getFilteredTasks();
-  const sorted = [...filtered].sort((a, b) => {
-    if (a.completed !== b.completed) return a.completed ? 1 : -1;
-    if (isOverdue(a) !== isOverdue(b)) return isOverdue(a) ? -1 : 1;
-    if (isUrgent(a) !== isUrgent(b)) return isUrgent(a) ? -1 : 1;
-    const order = { haute: 0, moyenne: 1, basse: 2 };
-    return (order[a.priority] ?? 2) - (order[b.priority] ?? 2);
-  });
+  const todayYmd = getTodayDate();
+  const statusSortOrder = { in_progress: 0, todo: 1, done: 2 };
+  const taskStatusKey = (t) => t.status || (t.completed ? 'done' : 'todo');
+
+  const sortTasks = (list) =>
+    [...list].sort((a, b) => {
+      const aDone = a.completed || a.status === TASK_STATUS_DONE;
+      const bDone = b.completed || b.status === TASK_STATUS_DONE;
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      if (!aDone && !bDone) {
+        const sa = statusSortOrder[taskStatusKey(a)] ?? 1;
+        const sb = statusSortOrder[taskStatusKey(b)] ?? 1;
+        if (sa !== sb) return sa - sb;
+      }
+      if (isOverdue(a) !== isOverdue(b)) return isOverdue(a) ? -1 : 1;
+      if (isUrgent(a) !== isUrgent(b)) return isUrgent(a) ? -1 : 1;
+      const order = { haute: 0, moyenne: 1, basse: 2 };
+      return (order[a.priority] ?? 2) - (order[b.priority] ?? 2);
+    });
+
+  const sorted = sortTasks(filtered);
+  const rawGroups = groupTasksByDay(sorted, todayYmd);
+  const taskGroups = {
+    ...rawGroups,
+    today: sortTasks(rawGroups.today),
+    yesterday: sortTasks(rawGroups.yesterday),
+    other: sortTasks(rawGroups.other),
+  };
+  const totalVisible = sorted.length;
 
   const roleInfo  = ROLE_LABELS[userRole] || ROLE_LABELS.employee;
   const isManager = canManage(userRole);
@@ -701,6 +812,18 @@ export default function Dashboard({ onResetConfig }) {
                 </button>
               )}
 
+              {isManager && (
+                <button
+                  type="button"
+                  onClick={() => setShowChecklistSettings(true)}
+                  className="p-2 rounded-lg bg-teal-50 text-teal-600 hover:bg-teal-100"
+                  title="Modèles de checklist"
+                  aria-label="Ouvrir les modèles de checklist"
+                >
+                  <ClipboardList className="w-5 h-5" aria-hidden />
+                </button>
+              )}
+
               {/* Reset (owner seulement) */}
               {isOwner && (
                 <button type="button" onClick={resetAll} className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
@@ -773,7 +896,21 @@ export default function Dashboard({ onResetConfig }) {
           onPrefsChange={tryPlannedTasksNotification}
         />
 
+        <ChecklistSettings
+          isOpen={showChecklistSettings}
+          onClose={() => setShowChecklistSettings(false)}
+          onSaved={() => loadTasks()}
+        />
+
         <div className="space-y-4">
+          <OpsProgressCard
+            tasks={tasks}
+            todayYmd={getTodayDate()}
+            isManager={isManager}
+            onGenerateChecklists={isManager ? handleGenerateChecklists : null}
+            generating={generatingChecklists}
+          />
+
           <PlanningCard
             onAddWeeklyTasks={isManager ? addWeeklyTasks : null}
             planningConfig={planningConfig}
@@ -880,7 +1017,10 @@ export default function Dashboard({ onResetConfig }) {
             /* Bandeau info employé */
             <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-700 text-sm">
               <User className="w-5 h-5 shrink-0" />
-              <span>En tant qu'employé, vous pouvez cocher les tâches terminées. Contactez votre manager pour ajouter des tâches.</span>
+              <span>
+                En tant qu&apos;employé, avancez chaque tâche : à faire → en cours → terminée.
+                Contactez votre manager pour ajouter des tâches.
+              </span>
             </div>
           )}
 
@@ -908,6 +1048,20 @@ export default function Dashboard({ onResetConfig }) {
                 </button>
               );
             })}
+            {isManager && (
+              <select
+                value={postFilter}
+                onChange={(e) => setPostFilter(e.target.value)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-600"
+                aria-label="Filtrer par poste"
+              >
+                {OPS_POSTS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            )}
             {isManager && stats.completed > 0 && (
               <button type="button" onClick={clearCompleted} className="ml-auto px-3 py-1.5 text-sm text-red-600 bg-red-50 rounded-lg hover:bg-red-100">
                 Effacer terminées
@@ -926,22 +1080,18 @@ export default function Dashboard({ onResetConfig }) {
               <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" aria-hidden />
               Chargement des tâches…
             </div>
-          ) : sorted.length === 0 ? (
+          ) : totalVisible === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
               {filter === 'all' ? '🎉 Aucune tâche pour aujourd\'hui' : 'Aucune tâche dans ce filtre'}
             </div>
           ) : (
-            <ul className="space-y-3">
-              {sorted.map(task => (
-                <TaskItem
-                  key={task.id}
-                  task={task}
-                  toggleTask={toggleTask}
-                  deleteTask={deleteTaskAction}
-                  canDelete={isManager}
-                />
-              ))}
-            </ul>
+            <TaskListByDay
+              groups={taskGroups}
+              advanceTaskStatus={advanceTaskStatus}
+              onProofNoteChange={updateProofNote}
+              deleteTask={deleteTaskAction}
+              canDelete={isManager}
+            />
           )}
         </div>
       </div>

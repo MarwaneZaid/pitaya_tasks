@@ -1,5 +1,7 @@
 /** Utilitaires calendrier (dates locales, format YYYY-MM-DD). */
 
+import { summarizeDayTasks } from './taskUtils';
+
 export const MONTH_NAMES_FR = [
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
@@ -41,6 +43,15 @@ export function getMonthRange(year, monthIndex) {
   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
   const end = formatDateYMD(year, monthIndex, lastDay);
   return { start, end };
+}
+
+/** État visuel d’un jour dans le calendrier (tâches faites ou non). */
+export function getDayCompletionKind(ymd, tasks, todayYmd) {
+  const summary = summarizeDayTasks(tasks);
+  if (summary.total === 0) return 'empty';
+  if (summary.done === summary.total) return 'complete';
+  if (ymd < todayYmd) return 'past_incomplete';
+  return 'in_progress';
 }
 
 export function formatDateLabelFr(ymd) {

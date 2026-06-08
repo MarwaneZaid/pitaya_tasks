@@ -1,21 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Calendar, ChevronLeft, ChevronRight, X, Plus, Loader2, Sparkles, Trash2,
+  Calendar, ChevronLeft, ChevronRight, X, Plus, Loader2, Sparkles,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext.jsx';
-import {
-  TASK_TYPE_ANNEXE,
-  TASK_TYPE_LABELS,
-} from '../config/constants';
+import { TASK_TYPE_ANNEXE } from '../config/constants';
 import {
   getMonthGridCells,
   getMonthRange,
   getTodayYMD,
   formatDateLabelFr,
+  getDayCompletionKind,
   MONTH_NAMES_FR,
   WEEKDAY_HEADERS_FR,
   parseDateYMD,
 } from '../lib/calendarUtils';
+import { summarizeDayTasks } from '../lib/taskUtils';
+import CalendarDayTaskPanel from './CalendarDayTaskPanel';
 import { buildQuotidienTasksForDate, weekdayKeyForDate } from '../lib/planningDay';
 import { deleteTask, getTasksInRange, saveTask, saveTasks } from '../lib/db';
 import TaskTypeSelector from './TaskTypeSelector';
@@ -80,13 +80,15 @@ export default function YearCalendarPlanner({
     return map;
   }, [monthTasks]);
 
-  const selectedTasks = useMemo(
-    () => (tasksByDate[selectedDate] || []).slice().sort((a, b) => {
-      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+  const selectedTasks = useMemo(() => {
+    const list = tasksByDate[selectedDate] || [];
+    return list.slice().sort((a, b) => {
+      const aDone = a.completed || a.status === 'done';
+      const bDone = b.completed || b.status === 'done';
+      if (aDone !== bDone) return aDone ? 1 : -1;
       return (a.title || '').localeCompare(b.title || '', 'fr');
-    }),
-    [tasksByDate, selectedDate]
-  );
+    });
+  }, [tasksByDate, selectedDate]);
 
   const gridCells = useMemo(
     () => getMonthGridCells(viewYear, viewMonth),
@@ -214,7 +216,7 @@ export default function YearCalendarPlanner({
                 Calendrier annuel
               </h2>
               <p className="text-xs text-slate-500 truncate">
-                Planifiez vos tâches jour par jour sur toute l’année
+                Cliquez un jour pour voir les tâches faites ou non — historique sur toute l’année
               </p>
             </div>
           </div>
@@ -304,16 +306,38 @@ export default function YearCalendarPlanner({
                     </div>
                   ))}
                 </div>
+                <div className="flex flex-wrap gap-3 text-[10px] text-slate-500 mb-2">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-emerald-400" /> Tout fait
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-amber-400" /> En cours
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded bg-red-400" /> Jour passé incomplet
+                  </span>
+                </div>
                 <div className="grid grid-cols-7 gap-1">
                   {gridCells.map((ymd, idx) => {
                     if (!ymd) {
                       return <div key={`empty-${idx}`} className="aspect-square" />;
                     }
                     const dayTasks = tasksByDate[ymd] || [];
-                    const pending = dayTasks.filter((t) => !t.completed).length;
+                    const summary = summarizeDayTasks(dayTasks);
+                    const kind = getDayCompletionKind(ymd, dayTasks, today);
                     const isToday = ymd === today;
                     const isSelected = ymd === selectedDate;
                     const { day } = parseDateYMD(ymd);
+
+                    let kindClass = 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700';
+                    if (kind === 'complete') {
+                      kindClass = 'border-emerald-300 bg-emerald-50 text-emerald-900';
+                    } else if (kind === 'past_incomplete') {
+                      kindClass = 'border-red-300 bg-red-50 text-red-900';
+                    } else if (kind === 'in_progress') {
+                      kindClass = 'border-amber-300 bg-amber-50 text-amber-900';
+                    }
+
                     return (
                       <button
                         key={ymd}
@@ -321,20 +345,29 @@ export default function YearCalendarPlanner({
                         onClick={() => setSelectedDate(ymd)}
                         className={`aspect-square rounded-lg border text-sm flex flex-col items-center justify-center gap-0.5 transition-colors ${
                           isSelected
-                            ? 'border-amber-500 bg-amber-100 text-amber-900 ring-2 ring-amber-300'
+                            ? 'ring-2 ring-amber-400 border-amber-500'
                             : isToday
-                              ? 'border-emerald-400 bg-emerald-50 text-emerald-900'
-                              : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                        }`}
+                              ? 'ring-1 ring-emerald-400'
+                              : ''
+                        } ${kindClass}`}
+                        title={
+                          summary.total > 0
+                            ? `${summary.done}/${summary.total} terminées`
+                            : 'Aucune tâche'
+                        }
                       >
                         <span className="font-semibold leading-none">{day}</span>
-                        {dayTasks.length > 0 && (
+                        {summary.total > 0 && (
                           <span
                             className={`text-[9px] font-medium px-1 rounded ${
-                              pending > 0 ? 'bg-amber-500 text-white' : 'bg-slate-300 text-slate-700'
+                              kind === 'complete'
+                                ? 'bg-emerald-500 text-white'
+                                : kind === 'past_incomplete'
+                                  ? 'bg-red-500 text-white'
+                                  : 'bg-amber-500 text-white'
                             }`}
                           >
-                            {dayTasks.length}
+                            {kind === 'complete' ? '✓' : `${summary.done}/${summary.total}`}
                           </span>
                         )}
                       </button>
@@ -357,48 +390,15 @@ export default function YearCalendarPlanner({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2 max-h-48 lg:max-h-none">
-              {selectedTasks.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-6">
-                  Aucune tâche planifiée ce jour.
-                </p>
-              ) : (
-                selectedTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`flex items-start gap-2 p-2 rounded-lg border text-sm ${
-                      task.completed
-                        ? 'bg-slate-50 border-slate-200 opacity-70'
-                        : 'bg-white border-slate-200'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`font-medium text-slate-800 ${
-                          task.completed ? 'line-through' : ''
-                        }`}
-                      >
-                        {task.title}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {TASK_TYPE_LABELS[task.taskType] || task.taskType}
-                        {task.completed ? ' · Terminée' : ''}
-                      </p>
-                    </div>
-                    {isManager && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTask(task.id)}
-                        disabled={busy}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded"
-                        aria-label={`Supprimer ${task.title}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
+            <div className="flex-1 overflow-y-auto p-3 max-h-48 lg:max-h-none">
+              <CalendarDayTaskPanel
+                selectedDate={selectedDate}
+                todayYmd={today}
+                tasks={selectedTasks}
+                isManager={isManager}
+                busy={busy}
+                onDeleteTask={handleDeleteTask}
+              />
             </div>
 
             {isManager && (

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatDateYMD,
+  getDayCompletionKind,
   getMonthGridCells,
   getMonthRange,
   parseDateYMD,
@@ -17,6 +18,16 @@ describe('calendarUtils', () => {
 
   it('getMonthRange returns inclusive bounds', () => {
     expect(getMonthRange(2026, 1)).toEqual({ start: '2026-02-01', end: '2026-02-28' });
+  });
+
+  it('getDayCompletionKind distingue jour complet et passé incomplet', () => {
+    const tasks = [
+      { status: 'done', completed: true },
+      { status: 'todo', completed: false },
+    ];
+    expect(getDayCompletionKind('2026-05-19', tasks, '2026-05-20')).toBe('past_incomplete');
+    expect(getDayCompletionKind('2026-05-20', [{ status: 'done', completed: true }], '2026-05-20')).toBe('complete');
+    expect(getDayCompletionKind('2026-05-21', [], '2026-05-20')).toBe('empty');
   });
 
   it('getMonthGridCells starts on Monday', () => {
