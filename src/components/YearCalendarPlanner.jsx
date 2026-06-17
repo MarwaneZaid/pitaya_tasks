@@ -17,7 +17,7 @@ import {
 import { summarizeDayTasks } from '../lib/taskUtils';
 import CalendarDayTaskPanel from './CalendarDayTaskPanel';
 import { buildQuotidienTasksForDate, weekdayKeyForDate } from '../lib/planningDay';
-import { deleteTask, getTasksInRange, saveTask, saveTasks } from '../lib/db';
+import { deleteTask, getTasks, getTasksInRange, saveTask, saveTasks } from '../lib/db';
 import TaskTypeSelector from './TaskTypeSelector';
 
 const PRIORITY_OPTIONS = [
@@ -69,6 +69,27 @@ export default function YearCalendarPlanner({
   useEffect(() => {
     loadMonth();
   }, [loadMonth]);
+
+  useEffect(() => {
+    if (!isOpen || !selectedDate) return;
+    let alive = true;
+    const loadSelectedDate = async () => {
+      try {
+        const rows = await getTasks(selectedDate);
+        if (!alive) return;
+        setMonthTasks((prev) => {
+          const keep = prev.filter((t) => t.scheduledFor !== selectedDate);
+          return [...keep, ...rows];
+        });
+      } catch (e) {
+        console.warn('Impossible de recharger les tâches de la date sélectionnée', e);
+      }
+    };
+    loadSelectedDate();
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, selectedDate]);
 
   const tasksByDate = useMemo(() => {
     const map = {};

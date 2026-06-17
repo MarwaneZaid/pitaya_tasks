@@ -63,6 +63,8 @@ import {
   displayName,
   getTodayYmd,
   groupTasksByDay,
+  isTaskDone,
+  taskScheduledDay,
 } from './lib/taskUtils';
 import TaskListByDay from './components/TaskListByDay';
 import { useToast } from './context/ToastContext.jsx';
@@ -553,6 +555,7 @@ export default function Dashboard({ onResetConfig }) {
 
   const getFilteredTasks = () => {
     let list;
+    const todayYmd = getTodayDate();
     switch (filter) {
       case 'active':
         list = tasks.filter((t) => !t.completed && t.status !== TASK_STATUS_DONE);
@@ -569,7 +572,13 @@ export default function Dashboard({ onResetConfig }) {
         list = tasks.filter((t) => (t.taskType || TASK_TYPE_ANNEXE) === filter);
         break;
       default:
-        list = tasks;
+        list = tasks.filter((t) => {
+          const day = taskScheduledDay(t, todayYmd);
+          // Sur la vue principale, on garde l'historique non terminé;
+          // les tâches terminées des jours passés restent consultables via le calendrier.
+          if (day < todayYmd && isTaskDone(t)) return false;
+          return true;
+        });
     }
     if (postFilter !== 'all') {
       list = list.filter((t) => !t.post || t.post === postFilter || t.post === 'all');
