@@ -50,6 +50,9 @@ export default function YearCalendarPlanner({
     priority: 'moyenne',
   });
   const detailSectionRef = useRef(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileView, setMobileView] = useState('calendar'); // calendar | details
+  const [managerActionsOpen, setManagerActionsOpen] = useState(false);
 
   const loadMonth = useCallback(async () => {
     if (!isOpen) return;
@@ -70,6 +73,20 @@ export default function YearCalendarPlanner({
   useEffect(() => {
     loadMonth();
   }, [loadMonth]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onResize = () => setIsMobile(window.innerWidth < 1024);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setMobileView('calendar');
+    setManagerActionsOpen(false);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !selectedDate) return;
@@ -106,6 +123,13 @@ export default function YearCalendarPlanner({
       });
     }
   }, [isOpen, selectedDate]);
+
+  const handleSelectDate = (ymd) => {
+    setSelectedDate(ymd);
+    if (isMobile) {
+      setMobileView('details');
+    }
+  };
 
   const tasksByDate = useMemo(() => {
     const map = {};
@@ -324,8 +348,35 @@ export default function YearCalendarPlanner({
           </button>
         </div>
 
+        {isMobile && (
+          <div className="px-4 py-2 border-b border-slate-100 bg-white flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileView('calendar')}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg border ${
+                mobileView === 'calendar'
+                  ? 'bg-amber-100 border-amber-300 text-amber-900'
+                  : 'bg-slate-50 border-slate-200 text-slate-600'
+              }`}
+            >
+              Calendrier
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileView('details')}
+              className={`flex-1 py-2 text-sm font-semibold rounded-lg border ${
+                mobileView === 'details'
+                  ? 'bg-amber-100 border-amber-300 text-amber-900'
+                  : 'bg-slate-50 border-slate-200 text-slate-600'
+              }`}
+            >
+              Détail du jour
+            </button>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <section className="min-w-0">
+          <section className={`min-w-0 ${isMobile && mobileView !== 'calendar' ? 'hidden' : ''}`}>
             {loadingMonth ? (
               <div className="flex items-center justify-center py-16 text-slate-400 gap-2">
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -379,7 +430,7 @@ export default function YearCalendarPlanner({
                       <button
                         key={ymd}
                         type="button"
-                        onClick={() => setSelectedDate(ymd)}
+                        onClick={() => handleSelectDate(ymd)}
                         className={`aspect-square rounded-lg border text-sm flex flex-col items-center justify-center gap-0.5 transition-colors ${
                           isSelected
                             ? 'ring-2 ring-amber-400 border-amber-500'
@@ -417,9 +468,20 @@ export default function YearCalendarPlanner({
 
           <section
             ref={detailSectionRef}
-            className="min-w-0 flex flex-col border border-slate-200 rounded-xl overflow-hidden"
+            className={`min-w-0 flex flex-col border border-slate-200 rounded-xl overflow-hidden ${
+              isMobile && mobileView !== 'details' ? 'hidden' : ''
+            }`}
           >
             <div className="p-3 bg-slate-50 border-b border-slate-200">
+              {isMobile && (
+                <button
+                  type="button"
+                  onClick={() => setMobileView('calendar')}
+                  className="text-xs font-medium text-amber-700 mb-2"
+                >
+                  ← Retour au calendrier
+                </button>
+              )}
               <p className="font-semibold text-slate-800 text-sm capitalize">
                 {formatDateLabelFr(selectedDate)}
               </p>
@@ -443,6 +505,17 @@ export default function YearCalendarPlanner({
 
             {isManager && (
               <div className="p-3 border-t border-slate-200 bg-white space-y-3">
+                {isMobile && (
+                  <button
+                    type="button"
+                    onClick={() => setManagerActionsOpen((v) => !v)}
+                    className="w-full py-2 text-sm font-semibold rounded-lg border border-slate-200 bg-slate-50 text-slate-700"
+                  >
+                    {managerActionsOpen ? 'Masquer actions manager' : 'Afficher actions manager'}
+                  </button>
+                )}
+                {(!isMobile || managerActionsOpen) && (
+                  <>
                 <button
                   type="button"
                   onClick={handleApplyTemplate}
@@ -489,6 +562,8 @@ export default function YearCalendarPlanner({
                     Planifier ce jour
                   </button>
                 </form>
+                  </>
+                )}
               </div>
             )}
           </section>
