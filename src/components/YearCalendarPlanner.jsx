@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calendar, ChevronLeft, ChevronRight, X, Plus, Loader2, Sparkles,
 } from 'lucide-react';
@@ -49,6 +49,7 @@ export default function YearCalendarPlanner({
     taskType: TASK_TYPE_ANNEXE,
     priority: 'moyenne',
   });
+  const detailSectionRef = useRef(null);
 
   const loadMonth = useCallback(async () => {
     if (!isOpen) return;
@@ -89,6 +90,21 @@ export default function YearCalendarPlanner({
     return () => {
       alive = false;
     };
+  }, [isOpen, selectedDate]);
+
+  useEffect(() => {
+    if (!isOpen || !selectedDate) return;
+    if (typeof window === 'undefined') return;
+    // En vue mobile, amène automatiquement la section "tâches du jour" à l'écran
+    // après sélection d'une date dans la grille.
+    if (window.innerWidth < 1024 && detailSectionRef.current) {
+      requestAnimationFrame(() => {
+        detailSectionRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+      });
+    }
   }, [isOpen, selectedDate]);
 
   const tasksByDate = useMemo(() => {
@@ -399,7 +415,10 @@ export default function YearCalendarPlanner({
             )}
           </section>
 
-          <section className="min-w-0 flex flex-col border border-slate-200 rounded-xl overflow-hidden">
+          <section
+            ref={detailSectionRef}
+            className="min-w-0 flex flex-col border border-slate-200 rounded-xl overflow-hidden"
+          >
             <div className="p-3 bg-slate-50 border-b border-slate-200">
               <p className="font-semibold text-slate-800 text-sm capitalize">
                 {formatDateLabelFr(selectedDate)}
@@ -411,7 +430,7 @@ export default function YearCalendarPlanner({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 max-h-48 lg:max-h-none">
+            <div className="flex-1 overflow-y-auto p-3 max-h-[60vh] lg:max-h-none">
               <CalendarDayTaskPanel
                 selectedDate={selectedDate}
                 todayYmd={today}
