@@ -1,8 +1,10 @@
 /**
  * Notifications navigateur pour les tâches planifiées (scheduledFor).
- * Fonctionne quand l’app est ouverte (onglet actif ou en arrière-plan selon le navigateur).
- * Pour des alertes même app fermée : Web Push + serveur (phase ultérieure).
+ * En local : onglet ouvert ou en arrière-plan.
+ * App fermée : Web Push via service worker + Supabase (voir webPush.js).
  */
+
+import { isTaskDone } from './taskUtils';
 
 export function canUseBrowserNotifications() {
   return typeof window !== 'undefined' && 'Notification' in window;
@@ -24,7 +26,7 @@ export async function requestNotificationPermission() {
 export function getPendingTasksForDate(tasks, dateYmd) {
   if (!Array.isArray(tasks) || !dateYmd) return [];
   return tasks.filter(
-    (t) => !t.completed && t.scheduledFor === dateYmd && (t.title || '').trim()
+    (t) => !isTaskDone(t) && t.scheduledFor === dateYmd && (t.title || '').trim()
   );
 }
 

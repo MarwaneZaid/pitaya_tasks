@@ -12,23 +12,35 @@ import {
   saveNotificationEnabled,
   saveNotificationHour,
 } from '../lib/notificationPrefs';
+import {
+  hasWebPushSupport,
+  isWebPushConfigured,
+  subscribeUserToPush,
+  syncPushReminderHour,
+  unsubscribeUserFromPush,
+} from '../lib/webPush';
 
 export default function NotificationSettings({ isOpen, onClose, onPrefsChange }) {
   const { showToast } = useToast();
   const [enabled, setEnabled] = useState(false);
   const [hour, setHour] = useState(8);
   const [permission, setPermission] = useState('default');
+  const [busy, setBusy] = useState(false);
+  const [pushReady, setPushReady] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
     setEnabled(readNotificationEnabled());
     setHour(readNotificationHour());
     setPermission(getNotificationPermission());
+    setPushReady(isWebPushConfigured());
   }, [isOpen]);
 
   if (!isOpen) return null;
 
   const unsupported = !canUseBrowserNotifications();
+  const webPushAvailable = hasWebPushSupport();
+  const serverPushReady = isWebPushConfigured();
 
   const handleToggle = async () => {
     if (unsupported) {
@@ -38,37 +50,65 @@ export default function NotificationSettings({ isOpen, onClose, onPrefsChange })
       });
       return;
     }
-    if (!enabled) {
-      const result = await requestNotificationPermission();
-      setPermission(result);
-      if (result !== 'granted') {
+
+    setBusy(true);
+    try {
+      if (!enabled) {
+        const result = await requestNotificationPermission();
+        setPermission(result);
+        if (result !== 'granted') {
+          showToast({
+            message:
+              result === 'denied'
+                ? 'Notifications refusées. Autorisez DailyDo dans les réglages du navigateur / du téléphone.'
+                : 'Autorisation des notifications annulée.',
+            variant: 'error',
+          });
+          return;
+        }
+
+        if (serverPushReady) {
+          await subscribeUserToPush(readNotificationHour());
+        }
+
+        setEnabled(true);
+        saveNotificationEnabled(true);
         showToast({
-          message:
-            result === 'denied'
-              ? 'Notifications refusées. Autorisez DailyDo dans les réglages du navigateur / du téléphone.'
-              : 'Autorisation des notifications annulée.',
-          variant: 'error',
+          message: serverPushReady
+            ? 'Notifications activées — rappels même si l’app est fermée.'
+            : 'Notifications activées (app ouverte). Configuration serveur Web Push en attente.',
+          variant: 'success',
         });
-        return;
+      } else {
+        if (serverPushReady) {
+          await unsubscribeUserFromPush();
+        }
+        setEnabled(false);
+        saveNotificationEnabled(false);
+        showToast({ message: 'Notifications désactivées.', variant: 'info' });
       }
-      setEnabled(true);
-      saveNotificationEnabled(true);
+      onPrefsChange?.();
+    } catch (e) {
       showToast({
-        message: 'Notifications activées pour les tâches planifiées du jour.',
-        variant: 'success',
+        message: e?.message || 'Impossible d’activer les notifications.',
+        variant: 'error',
       });
-    } else {
-      setEnabled(false);
-      saveNotificationEnabled(false);
-      showToast({ message: 'Notifications désactivées.', variant: 'info' });
+    } finally {
+      setBusy(false);
     }
-    onPrefsChange?.();
   };
 
-  const handleHourChange = (e) => {
+  const handleHourChange = async (e) => {
     const h = parseInt(e.target.value, 10);
     setHour(h);
     saveNotificationHour(h);
+    if (enabled && serverPushReady) {
+      try {
+        await syncPushReminderHour(h);
+      } catch (err) {
+        console.warn('syncPushReminderHour:', err);
+      }
+    }
     onPrefsChange?.();
   };
 
@@ -105,14 +145,24 @@ export default function NotificationSettings({ isOpen, onClose, onPrefsChange })
           ) : (
             <>
               <p>
-                Chaque jour à l’heure choisie, si l’application est ouverte (ou en arrière-plan),
-                vous recevez un rappel des <strong>tâches non terminées</strong> dont la date
-                planifiée est <strong>aujourd’hui</strong> (calendrier ou tableau de bord).
+                Chaque jour à l’heure choisie, vous recevez un rappel des{' '}
+                <strong>tâches non terminées</strong> prévues pour{' '}
+                <strong>aujourd’hui</strong>.
               </p>
+              {pushReady ? (
+                <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg p-2">
+                  Web Push actif : les rappels fonctionnent même si l’application est fermée
+                  (Android, desktop, iPhone via l’icône sur l’écran d’accueil).
+                </p>
+              ) : webPushAvailable ? (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-2">
+                  Rappels disponibles avec l’app ouverte. Pour les alertes app fermée, la clé
+                  Web Push doit être configurée sur le serveur (voir documentation).
+                </p>
+              ) : null}
               <p className="text-xs text-slate-500">
-                Sur iPhone : ajoutez le site à l’écran d’accueil (PWA) et autorisez les
-                notifications pour de meilleurs résultats. Les alertes avec l’app complètement
-                fermée nécessitent une évolution serveur (Web Push).
+                Sur iPhone : ouvrez DailyDo dans Safari → Partager → « Sur l’écran d’accueil »,
+                puis activez les notifications ici.
               </p>
               <p className="text-xs">
                 Permission actuelle :{' '}
@@ -132,8 +182,8 @@ export default function NotificationSettings({ isOpen, onClose, onPrefsChange })
               type="checkbox"
               checked={enabled}
               onChange={handleToggle}
-              disabled={unsupported}
-              className="w-5 h-5 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              disabled={unsupported || busy}
+              className="w-5 h-5 rounded border-slate-300 text-violet-600 focus:ring-violet-500 disabled:opacity-50"
             />
             <span className="font-medium text-slate-800 flex items-center gap-2">
               {enabled ? <Bell className="w-4 h-4 text-violet-600" /> : <BellOff className="w-4 h-4" />}
@@ -149,6 +199,7 @@ export default function NotificationSettings({ isOpen, onClose, onPrefsChange })
               <select
                 value={hour}
                 onChange={handleHourChange}
+                disabled={busy}
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl"
               >
                 {Array.from({ length: 24 }, (_, i) => (

@@ -20,6 +20,17 @@ export const TASK_STATUS_LABELS = {
 export const CHECKLIST_RECURRENCE_DAILY = 'daily';
 export const CHECKLIST_RECURRENCE_WEEKDAYS = 'weekdays';
 
+/** Filtre liste principale : checklists vs planning nettoyage. */
+export const TASK_LIST_ALL = 'all';
+export const TASK_LIST_CHECKLIST = 'checklist';
+export const TASK_LIST_NETTOYAGE = 'nettoyage';
+
+export const TASK_LIST_FILTER_OPTIONS = [
+  { id: TASK_LIST_ALL, label: 'Tout' },
+  { id: TASK_LIST_CHECKLIST, label: 'Checklists' },
+  { id: TASK_LIST_NETTOYAGE, label: 'Nettoyage' },
+];
+
 export const DEFAULT_CHECKLIST_TEMPLATES = [
   {
     name: 'Ouverture',

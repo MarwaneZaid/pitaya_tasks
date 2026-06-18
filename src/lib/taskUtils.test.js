@@ -5,7 +5,12 @@ import {
   groupTasksByDay,
   summarizeDayTasks,
   taskScheduledDay,
+  isChecklistTask,
+  isNettoyagePlanningTask,
+  matchesTaskListFilter,
 } from './taskUtils';
+import { TASK_TYPE_QUOTIDIEN } from '../config/constants';
+import { TASK_LIST_CHECKLIST, TASK_LIST_NETTOYAGE } from '../config/opsConstants';
 
 /**
  * Logique de filtrage des tâches (répliquée depuis Dashboard pour tester)
@@ -74,6 +79,30 @@ describe('taskUtils (filtrage)', () => {
     const result = getFilteredTasks(tasks, 'my-tasks', 'Alice', TASK_TYPE_ANNEXE);
     expect(result).toHaveLength(2);
     expect(result.every((t) => t.assignedTo === 'Alice')).toBe(true);
+  });
+});
+
+describe('task list filter (checklist vs nettoyage)', () => {
+  const mixed = [
+    { id: 1, title: 'Checklist ouverture', taskType: TASK_TYPE_QUOTIDIEN, checklistId: 'cl-1' },
+    { id: 2, title: 'Nettoyage sol', taskType: TASK_TYPE_QUOTIDIEN },
+    { id: 3, title: 'Annexe', taskType: 'annexe' },
+  ];
+
+  it('isChecklistTask détecte checklistId', () => {
+    expect(isChecklistTask(mixed[0])).toBe(true);
+    expect(isChecklistTask(mixed[1])).toBe(false);
+  });
+
+  it('isNettoyagePlanningTask cible le planning quotidien sans checklist', () => {
+    expect(isNettoyagePlanningTask(mixed[1])).toBe(true);
+    expect(isNettoyagePlanningTask(mixed[0])).toBe(false);
+    expect(isNettoyagePlanningTask(mixed[2])).toBe(false);
+  });
+
+  it('matchesTaskListFilter sépare les vues', () => {
+    expect(mixed.filter((t) => matchesTaskListFilter(t, TASK_LIST_CHECKLIST))).toHaveLength(1);
+    expect(mixed.filter((t) => matchesTaskListFilter(t, TASK_LIST_NETTOYAGE))).toHaveLength(1);
   });
 });
 

@@ -44,7 +44,12 @@ import {
   materializeChecklistsForDate,
 } from './lib/db';
 import { nextStatus, normalizeTaskFields } from './lib/taskStatus';
-import { TASK_STATUS_DONE, OPS_POSTS } from './config/opsConstants';
+import {
+  TASK_STATUS_DONE,
+  OPS_POSTS,
+  TASK_LIST_ALL,
+  TASK_LIST_FILTER_OPTIONS,
+} from './config/opsConstants';
 import { clearLastAuthEmail } from './lib/authPrefs';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
@@ -65,6 +70,7 @@ import {
   groupTasksByDay,
   isTaskDone,
   taskScheduledDay,
+  matchesTaskListFilter,
 } from './lib/taskUtils';
 import TaskListByDay from './components/TaskListByDay';
 import { useToast } from './context/ToastContext.jsx';
@@ -94,6 +100,7 @@ export default function Dashboard({ onResetConfig }) {
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const [showEndOfDayReminder, setShowEndOfDayReminder] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [listFilter, setListFilter] = useState(TASK_LIST_ALL);
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState(null); // 'owner' | 'manager' | 'employee'
   const [isNameSet, setIsNameSet] = useState(false);
@@ -583,6 +590,9 @@ export default function Dashboard({ onResetConfig }) {
     if (postFilter !== 'all') {
       list = list.filter((t) => !t.post || t.post === postFilter || t.post === 'all');
     }
+    if (listFilter !== TASK_LIST_ALL) {
+      list = list.filter((t) => matchesTaskListFilter(t, listFilter));
+    }
     return list;
   };
 
@@ -1033,6 +1043,31 @@ export default function Dashboard({ onResetConfig }) {
             </div>
           )}
 
+          {/* ── Vue checklist / nettoyage ─────────────────────────────────── */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-slate-600 mr-1">Vue :</span>
+            {TASK_LIST_FILTER_OPTIONS.map(({ id, label }) => {
+              const isActive = listFilter === id;
+              const activeClass =
+                id === 'checklist' ? 'bg-violet-600 text-white' :
+                id === 'nettoyage' ? 'bg-emerald-600 text-white' :
+                'bg-slate-700 text-white';
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  onClick={() => setListFilter(id)}
+                  aria-pressed={isActive}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? activeClass : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* ── Filtres ───────────────────────────────────────────────────── */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-slate-600 mr-1">Filtrer :</span>
@@ -1091,7 +1126,13 @@ export default function Dashboard({ onResetConfig }) {
             </div>
           ) : totalVisible === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-              {filter === 'all' ? '🎉 Aucune tâche pour aujourd\'hui' : 'Aucune tâche dans ce filtre'}
+              {listFilter === 'checklist'
+                ? 'Aucune tâche checklist pour ce filtre'
+                : listFilter === 'nettoyage'
+                  ? 'Aucune tâche de nettoyage planifiée pour ce filtre'
+                  : filter === 'all'
+                    ? '🎉 Aucune tâche pour aujourd\'hui'
+                    : 'Aucune tâche dans ce filtre'}
             </div>
           ) : (
             <TaskListByDay

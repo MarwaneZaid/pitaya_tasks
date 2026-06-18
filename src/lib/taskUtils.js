@@ -1,3 +1,10 @@
+import { TASK_TYPE_QUOTIDIEN } from '../config/constants';
+import {
+  TASK_LIST_ALL,
+  TASK_LIST_CHECKLIST,
+  TASK_LIST_NETTOYAGE,
+} from '../config/opsConstants';
+
 export function getTodayYmd() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -27,6 +34,34 @@ export function formatDaySectionLabel(ymd, prefix) {
  */
 export function isTaskDone(task) {
   return task?.status === 'done' || !!task?.completed;
+}
+
+/** Tâche issue d’un modèle de checklist (ouverture, fermeture, hygiène…). */
+export function isChecklistTask(task) {
+  return Boolean(task?.checklistId);
+}
+
+/** Tâche du planning nettoyage hebdomadaire (quotidien, hors checklist). */
+export function isNettoyagePlanningTask(task) {
+  if (isChecklistTask(task)) return false;
+  return (task?.taskType ?? null) === TASK_TYPE_QUOTIDIEN;
+}
+
+export function matchesTaskListFilter(task, listFilter) {
+  switch (listFilter) {
+    case TASK_LIST_ALL:
+    case undefined:
+      return true;
+    case TASK_LIST_CHECKLIST:
+      return isChecklistTask(task);
+    case TASK_LIST_NETTOYAGE:
+      return isNettoyagePlanningTask(task);
+    default: {
+      const unexpected = listFilter;
+      void unexpected;
+      return true;
+    }
+  }
 }
 
 /** Compteurs pour un jour (calendrier / récap). */

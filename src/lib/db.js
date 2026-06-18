@@ -668,3 +668,92 @@ export async function joinRestaurantByCode(code) {
 
   return { id: data.id, name: data.name };
 }
+
+// ─── Web Push (abonnements navigateur) ───────────────────────────────────────
+
+function pushSubscriptionPayload(subscription, reminderHour, userId, restaurantId) {
+  const json = subscription.toJSON();
+  const keys = json.keys;
+  if (!json.endpoint || !keys?.p256dh || !keys?.auth) {
+    throw new Error('Abonnement push invalide.');
+  }
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Paris';
+
+  return {
+    user_id: userId,
+    restaurant_id: restaurantId,
+    endpoint: json.endpoint,
+    p256dh: keys.p256dh,
+    auth: keys.auth,
+    reminder_hour: reminderHour,
+    enabled: true,
+    timezone,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function savePushSubscription(subscription, reminderHour) {
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+  const user = await assertAuthUserSynced(client);
+  const resto = await getUserRestaurant();
+  if (!resto?.id) throw new Error('Restaurant introuvable.');
+
+  const { error } = await client.from('push_subscriptions').upsert(
+    pushSubscriptionPayload(subscription, reminderHour, user.id, resto.id),
+    { onConflict: 'user_id,endpoint' }
+  );
+
+  if (error) {
+    if (error.message?.includes('push_subscriptions')) {
+      throw new Error(
+        'Table push_subscriptions manquante. Exécutez docs/supabase-push-notifications.sql dans Supabase.'
+      );
+    }
+    rethrowMappedDbError(error);
+  }
+}
+
+export async function updatePushReminderHour(reminderHour, endpoint) {
+  const client = getClient();
+  if (!client) return;
+  const user = await assertAuthUserSynced(client);
+  const hour = Math.min(23, Math.max(0, reminderHour));
+
+  let query = client
+    .from('push_subscriptions')
+    .update({ reminder_hour: hour, updated_at: new Date().toISOString() })
+    .eq('user_id', user.id)
+    .eq('enabled', true);
+
+  if (endpoint) {
+    query = query.eq('endpoint', endpoint);
+  }
+
+  const { error } = await query;
+  if (error) console.warn('updatePushReminderHour:', error.message);
+}
+
+export async function disablePushSubscriptions() {
+  const client = getClient();
+  if (!client) return;
+  const user = await assertAuthUserSynced(client);
+  const { error } = await client
+    .from('push_subscriptions')
+    .update({ enabled: false, updated_at: new Date().toISOString() })
+    .eq('user_id', user.id);
+  if (error) console.warn('disablePushSubscriptions:', error.message);
+}
+
+export async function disablePushSubscriptionByEndpoint(endpoint) {
+  const client = getClient();
+  if (!client || !endpoint) return;
+  const user = await assertAuthUserSynced(client);
+  const { error } = await client
+    .from('push_subscriptions')
+    .update({ enabled: false, updated_at: new Date().toISOString() })
+    .eq('user_id', user.id)
+    .eq('endpoint', endpoint);
+  if (error) console.warn('disablePushSubscriptionByEndpoint:', error.message);
+}
