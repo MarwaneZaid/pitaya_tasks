@@ -14,6 +14,15 @@ import {
   deleteChecklistTemplate,
 } from '../lib/db';
 
+function cloneDefaultTemplates(startIndex = 0) {
+  return DEFAULT_CHECKLIST_TEMPLATES.map((t, i) => ({
+    ...t,
+    id: `new-${Date.now()}-${startIndex + i}`,
+    active: true,
+    items: (t.items || []).map((it) => ({ ...it })),
+  }));
+}
+
 export default function ChecklistSettings({ isOpen, onClose, onSaved }) {
   const { showToast } = useToast();
   const [templates, setTemplates] = useState([]);
@@ -30,20 +39,18 @@ export default function ChecklistSettings({ isOpen, onClose, onSaved }) {
     try {
       const list = await getChecklistTemplates();
       if (list.length === 0) {
-        setTemplates(
-          DEFAULT_CHECKLIST_TEMPLATES.map((t, i) => ({
-            ...t,
-            id: `new-${i}`,
-            active: true,
-          }))
-        );
+        const defaults = cloneDefaultTemplates();
+        setTemplates(defaults);
+        setActiveId(defaults[0]?.id || null);
       } else {
         setTemplates(list);
+        setActiveId(list[0]?.id || null);
       }
-      setActiveId((list[0] || DEFAULT_CHECKLIST_TEMPLATES[0])?.id || 'new-0');
     } catch (e) {
       console.error(e);
-      setTemplates(DEFAULT_CHECKLIST_TEMPLATES.map((t, i) => ({ ...t, id: `new-${i}` })));
+      const defaults = cloneDefaultTemplates();
+      setTemplates(defaults);
+      setActiveId(defaults[0]?.id || null);
     }
     setLoading(false);
   };
@@ -87,6 +94,32 @@ export default function ChecklistSettings({ isOpen, onClose, onSaved }) {
     };
     setTemplates((prev) => [...prev, t]);
     setActiveId(id);
+  };
+
+  /** Ajoute les modèles Pitaya manquants (par nom), sans écraser l’existant. */
+  const importPitayaTemplates = () => {
+    const existingNames = new Set(
+      templates.map((t) => String(t.name || '').trim().toLowerCase())
+    );
+    const toAdd = cloneDefaultTemplates(templates.length).filter(
+      (t) => !existingNames.has(String(t.name).trim().toLowerCase())
+    );
+    if (toAdd.length === 0) {
+      showToast({
+        message: 'Les modèles Pitaya sont déjà présents.',
+        variant: 'info',
+      });
+      return;
+    }
+    setTemplates((prev) => [
+      ...prev,
+      ...toAdd.map((t, i) => ({ ...t, sortOrder: prev.length + i })),
+    ]);
+    setActiveId(toAdd[0].id);
+    showToast({
+      message: `${toAdd.length} modèle(s) Pitaya ajouté(s). Enregistrez pour les sauver.`,
+      variant: 'success',
+    });
   };
 
   const handleSave = async () => {
@@ -170,7 +203,19 @@ export default function ChecklistSettings({ isOpen, onClose, onSaved }) {
               >
                 + Modèle
               </button>
+              <button
+                type="button"
+                onClick={importPitayaTemplates}
+                className="px-3 py-1.5 text-sm rounded-lg border border-amber-300 bg-amber-50 text-amber-800 font-medium hover:bg-amber-100"
+                title="Importer les checklists manager / cuisine / salle Pitaya"
+              >
+                Importer modèles Pitaya
+              </button>
             </div>
+            <p className="text-xs text-slate-500">
+              Modèles Pitaya : Manager (ouverture / après-rush / fermeture), Cuisine, Caisse &amp; Salle.
+              Cliquez « Importer », puis « Enregistrer », puis « Générer les checklists » sur le tableau.
+            </p>
 
             {active && (
               <>
