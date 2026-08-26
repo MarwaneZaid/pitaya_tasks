@@ -20,6 +20,15 @@ export function taskScheduledDay(task, fallbackToday = getTodayYmd()) {
   return task.scheduledFor || (task.createdAt && task.createdAt.slice(0, 10)) || fallbackToday;
 }
 
+function ymdToMs(ymd) {
+  return new Date(`${ymd}T12:00:00`).getTime();
+}
+
+export function dayDiffFromToday(dayYmd, todayYmd = getTodayYmd()) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((ymdToMs(todayYmd) - ymdToMs(dayYmd)) / msPerDay);
+}
+
 export function formatDaySectionLabel(ymd, prefix) {
   const label = new Date(`${ymd}T12:00:00`).toLocaleDateString('fr-FR', {
     weekday: 'long',
@@ -45,6 +54,16 @@ export function isChecklistTask(task) {
 export function isNettoyagePlanningTask(task) {
   if (isChecklistTask(task)) return false;
   return (task?.taskType ?? null) === TASK_TYPE_QUOTIDIEN;
+}
+
+/**
+ * Cache les tâches nettoyage quotidiennes non terminées trop anciennes.
+ * Par défaut, on garde aujourd'hui et hier; au-delà, on masque.
+ */
+export function shouldHideStaleNettoyageTask(task, todayYmd = getTodayYmd(), keepDays = 1) {
+  if (!isNettoyagePlanningTask(task) || isTaskDone(task)) return false;
+  const taskDay = taskScheduledDay(task, todayYmd);
+  return dayDiffFromToday(taskDay, todayYmd) > keepDays;
 }
 
 export function matchesTaskListFilter(task, listFilter) {

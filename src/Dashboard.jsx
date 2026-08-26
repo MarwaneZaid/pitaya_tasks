@@ -71,6 +71,7 @@ import {
   isTaskDone,
   taskScheduledDay,
   matchesTaskListFilter,
+  shouldHideStaleNettoyageTask,
 } from './lib/taskUtils';
 import TaskListByDay from './components/TaskListByDay';
 import { useToast } from './context/ToastContext.jsx';
@@ -563,23 +564,24 @@ export default function Dashboard({ onResetConfig }) {
   const getFilteredTasks = () => {
     let list;
     const todayYmd = getTodayDate();
+    const visibleTasks = tasks.filter((t) => !shouldHideStaleNettoyageTask(t, todayYmd));
     switch (filter) {
       case 'active':
-        list = tasks.filter((t) => !t.completed && t.status !== TASK_STATUS_DONE);
+        list = visibleTasks.filter((t) => !t.completed && t.status !== TASK_STATUS_DONE);
         break;
       case 'completed':
-        list = tasks.filter((t) => t.completed || t.status === TASK_STATUS_DONE);
+        list = visibleTasks.filter((t) => t.completed || t.status === TASK_STATUS_DONE);
         break;
       case 'my-tasks':
-        list = tasks.filter((t) => t.assignedTo === userName);
+        list = visibleTasks.filter((t) => t.assignedTo === userName);
         break;
       case TASK_TYPE_QUOTIDIEN:
       case TASK_TYPE_ANNEXE:
       case TASK_TYPE_SEMAINE:
-        list = tasks.filter((t) => (t.taskType || TASK_TYPE_ANNEXE) === filter);
+        list = visibleTasks.filter((t) => (t.taskType || TASK_TYPE_ANNEXE) === filter);
         break;
       default:
-        list = tasks.filter((t) => {
+        list = visibleTasks.filter((t) => {
           const day = taskScheduledDay(t, todayYmd);
           // Sur la vue principale, on garde l'historique non terminé;
           // les tâches terminées des jours passés restent consultables via le calendrier.

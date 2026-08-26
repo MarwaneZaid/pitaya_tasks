@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   displayName,
+  dayDiffFromToday,
   getYesterdayYmd,
   groupTasksByDay,
   summarizeDayTasks,
@@ -8,6 +9,7 @@ import {
   isChecklistTask,
   isNettoyagePlanningTask,
   matchesTaskListFilter,
+  shouldHideStaleNettoyageTask,
 } from './taskUtils';
 import { TASK_TYPE_QUOTIDIEN } from '../config/constants';
 import { TASK_LIST_CHECKLIST, TASK_LIST_NETTOYAGE } from '../config/opsConstants';
@@ -103,6 +105,27 @@ describe('task list filter (checklist vs nettoyage)', () => {
   it('matchesTaskListFilter sépare les vues', () => {
     expect(mixed.filter((t) => matchesTaskListFilter(t, TASK_LIST_CHECKLIST))).toHaveLength(1);
     expect(mixed.filter((t) => matchesTaskListFilter(t, TASK_LIST_NETTOYAGE))).toHaveLength(1);
+  });
+
+  it('masque le nettoyage quotidien non fait vieux de plus de 2 jours', () => {
+    const today = '2026-05-20';
+    const oldNettoyage = {
+      title: 'Nettoyage ancien',
+      taskType: TASK_TYPE_QUOTIDIEN,
+      scheduledFor: '2026-05-18',
+      completed: false,
+      status: 'todo',
+    };
+    const yesterdayNettoyage = {
+      title: 'Nettoyage hier',
+      taskType: TASK_TYPE_QUOTIDIEN,
+      scheduledFor: '2026-05-19',
+      completed: false,
+      status: 'todo',
+    };
+    expect(dayDiffFromToday(oldNettoyage.scheduledFor, today)).toBe(2);
+    expect(shouldHideStaleNettoyageTask(oldNettoyage, today)).toBe(true);
+    expect(shouldHideStaleNettoyageTask(yesterdayNettoyage, today)).toBe(false);
   });
 });
 
