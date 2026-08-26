@@ -20,6 +20,11 @@ export function taskScheduledDay(task, fallbackToday = getTodayYmd()) {
   return task.scheduledFor || (task.createdAt && task.createdAt.slice(0, 10)) || fallbackToday;
 }
 
+export function isBeforeYesterday(task, todayYmd = getTodayYmd()) {
+  const yesterdayYmd = getYesterdayYmd(todayYmd);
+  return taskScheduledDay(task, todayYmd) < yesterdayYmd;
+}
+
 function ymdToMs(ymd) {
   return new Date(`${ymd}T12:00:00`).getTime();
 }

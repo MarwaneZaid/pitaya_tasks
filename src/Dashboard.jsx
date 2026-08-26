@@ -67,11 +67,12 @@ import {
   isOverdue,
   displayName,
   getTodayYmd,
+  getYesterdayYmd,
   groupTasksByDay,
   isTaskDone,
+  isBeforeYesterday,
   taskScheduledDay,
   matchesTaskListFilter,
-  shouldHideStaleNettoyageTask,
 } from './lib/taskUtils';
 import TaskListByDay from './components/TaskListByDay';
 import { useToast } from './context/ToastContext.jsx';
@@ -564,7 +565,7 @@ export default function Dashboard({ onResetConfig }) {
   const getFilteredTasks = () => {
     let list;
     const todayYmd = getTodayDate();
-    const visibleTasks = tasks.filter((t) => !shouldHideStaleNettoyageTask(t, todayYmd));
+    const visibleTasks = tasks.filter((t) => !isBeforeYesterday(t, todayYmd));
     switch (filter) {
       case 'active':
         list = visibleTasks.filter((t) => !t.completed && t.status !== TASK_STATUS_DONE);
@@ -583,8 +584,10 @@ export default function Dashboard({ onResetConfig }) {
       default:
         list = visibleTasks.filter((t) => {
           const day = taskScheduledDay(t, todayYmd);
-          // Sur la vue principale, on garde l'historique non terminé;
-          // les tâches terminées des jours passés restent consultables via le calendrier.
+          const yesterdayYmd = getYesterdayYmd(todayYmd);
+          // Vue principale: seulement aujourd'hui et hier.
+          if (day < yesterdayYmd) return false;
+          // Les tâches terminées des jours passés restent consultables via le calendrier.
           if (day < todayYmd && isTaskDone(t)) return false;
           return true;
         });

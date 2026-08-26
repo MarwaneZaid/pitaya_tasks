@@ -4,6 +4,7 @@ import {
   dayDiffFromToday,
   getYesterdayYmd,
   groupTasksByDay,
+  isBeforeYesterday,
   summarizeDayTasks,
   taskScheduledDay,
   isChecklistTask,
@@ -152,6 +153,12 @@ describe('groupTasksByDay', () => {
 
   it('taskScheduledDay utilise createdAt si scheduledFor absent', () => {
     expect(taskScheduledDay({ createdAt: '2026-05-19T10:00:00Z' }, today)).toBe('2026-05-19');
+  });
+
+  it('isBeforeYesterday masque les tâches avant hier', () => {
+    expect(isBeforeYesterday({ scheduledFor: '2026-05-18' }, today)).toBe(true);
+    expect(isBeforeYesterday({ scheduledFor: yesterday }, today)).toBe(false);
+    expect(isBeforeYesterday({ scheduledFor: today }, today)).toBe(false);
   });
 });
 
