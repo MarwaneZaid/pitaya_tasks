@@ -26,7 +26,6 @@ export const TASK_LIST_CHECKLIST = 'checklist';
 export const TASK_LIST_NETTOYAGE = 'nettoyage';
 
 export const TASK_LIST_FILTER_OPTIONS = [
-  { id: TASK_LIST_ALL, label: 'Tout' },
   { id: TASK_LIST_CHECKLIST, label: 'Checklists' },
   { id: TASK_LIST_NETTOYAGE, label: 'Nettoyage' },
 ];

@@ -46,7 +46,7 @@ import { nextStatus, normalizeTaskFields } from './lib/taskStatus';
 import {
   TASK_STATUS_DONE,
   OPS_POSTS,
-  TASK_LIST_ALL,
+  TASK_LIST_CHECKLIST,
   TASK_LIST_FILTER_OPTIONS,
 } from './config/opsConstants';
 import { clearLastAuthEmail } from './lib/authPrefs';
@@ -98,7 +98,7 @@ export default function Dashboard({ onResetConfig }) {
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const [showEndOfDayReminder, setShowEndOfDayReminder] = useState(false);
   const [filter, setFilter] = useState('all');
-  const [listFilter, setListFilter] = useState(TASK_LIST_ALL);
+  const [listFilter, setListFilter] = useState(TASK_LIST_CHECKLIST);
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState(null); // 'owner' | 'manager' | 'employee'
   const [isNameSet, setIsNameSet] = useState(false);
@@ -1166,12 +1166,8 @@ export default function Dashboard({ onResetConfig }) {
           ) : totalVisible === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
               {listFilter === 'checklist'
-                ? 'Aucune tâche checklist pour ce filtre'
-                : listFilter === 'nettoyage'
-                  ? 'Aucune tâche de nettoyage planifiée pour ce filtre'
-                  : filter === 'all'
-                    ? '🎉 Aucune tâche pour aujourd\'hui'
-                    : 'Aucune tâche dans ce filtre'}
+                ? 'Aucune checklist pour aujourd\'hui'
+                : 'Aucune tâche de nettoyage pour aujourd\'hui'}
             </div>
           ) : (
             <TaskListByDay
