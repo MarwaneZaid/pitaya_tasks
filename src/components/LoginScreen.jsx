@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2, KeyRound } from 'lucide-react';
+import { ChefHat, Store, Lock, AlertCircle, Loader2, Users, Building2, KeyRound, User } from 'lucide-react';
 import { supabase } from '../lib/storage-supabase';
 import { enterTeamWithInviteCode, clearRestaurantCache } from '../lib/db';
 import { APP_PUBLIC_ORIGIN } from '../config/constants';
@@ -176,6 +176,7 @@ export default function LoginScreen({ onEnter, onAuthFlowStart, onAuthFlowEnd })
   const [isLogin, setIsLogin] = useState(true);
   const [identifier, setIdentifier] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [memberName, setMemberName] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -184,7 +185,8 @@ export default function LoginScreen({ onEnter, onAuthFlowStart, onAuthFlowEnd })
   const handleMemberCodeSubmit = async (e) => {
     e.preventDefault();
     const code = inviteCode.trim().toUpperCase();
-    if (code.length < 8 || submitInFlightRef.current) return;
+    const name = memberName.trim();
+    if (code.length < 8 || name.length < 2 || submitInFlightRef.current) return;
 
     submitInFlightRef.current = true;
     setLoading(true);
@@ -196,7 +198,7 @@ export default function LoginScreen({ onEnter, onAuthFlowStart, onAuthFlowEnd })
         throw new Error("Supabase n'est pas configuré. Vérifiez les variables d'environnement.");
       }
       await withTimeout(
-        enterTeamWithInviteCode(code),
+        enterTeamWithInviteCode(code, name),
         'Connexion trop lente. Vérifiez votre connexion et réessayez.',
         AUTH_SIGNIN_ATTEMPT_MS
       );
@@ -280,13 +282,15 @@ export default function LoginScreen({ onEnter, onAuthFlowStart, onAuthFlowEnd })
     setFlow(next);
     setError(null);
     setInviteCode('');
+    setMemberName('');
     setIdentifier('');
     setPassword('');
     setIsLogin(true);
   };
 
   const ownerSubmitDisabled = loading || !identifier.trim() || password.length < 6;
-  const memberSubmitDisabled = loading || inviteCode.trim().length < 8;
+  const memberSubmitDisabled =
+    loading || inviteCode.trim().length < 8 || memberName.trim().length < 2;
 
   return (
     <div id="app-main" className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -333,10 +337,26 @@ export default function LoginScreen({ onEnter, onAuthFlowStart, onAuthFlowEnd })
           {flow === 'member' ? (
             <>
               <p className="text-sm text-slate-600 mb-4 leading-relaxed">
-                Saisissez le <strong>code à 8 caractères</strong> affiché par votre gérant (Équipe → Inviter).
+                Saisissez votre <strong>prénom</strong> et le <strong>code à 8 caractères</strong> du gérant.
                 Aucun mot de passe : sur cet appareil, vous resterez connecté automatiquement.
               </p>
               <form onSubmit={handleMemberCodeSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Votre prénom</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Samir"
+                      value={memberName}
+                      onChange={(e) => setMemberName(e.target.value)}
+                      maxLength={40}
+                      className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl text-slate-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      autoComplete="nickname"
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Code d’invitation</label>
                   <div className="relative">

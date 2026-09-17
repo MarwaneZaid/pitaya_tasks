@@ -7,9 +7,7 @@ import {
   USER_NAME_KEY,
   DEFAULT_SITE_NAME,
   FILTER_OPTIONS,
-  TASK_TYPE_QUOTIDIEN,
   TASK_TYPE_ANNEXE,
-  TASK_TYPE_SEMAINE,
 } from './config/constants';
 import { applyAnnexeRollover } from './lib/taskRollover';
 import { buildQuotidienTasksForDate } from './lib/planningDay';
@@ -42,6 +40,7 @@ import {
   getPlanningConfig,
   clearRestaurantCache,
   materializeChecklistsForDate,
+  getTeamMembers,
 } from './lib/db';
 import { nextStatus, normalizeTaskFields } from './lib/taskStatus';
 import {
@@ -67,13 +66,10 @@ import {
   isOverdue,
   displayName,
   getTodayYmd,
-  getYesterdayYmd,
   groupTasksByDay,
-  isTaskDone,
-  isBeforeYesterday,
-  taskScheduledDay,
-  matchesTaskListFilter,
 } from './lib/taskUtils';
+import { filterDashboardTasks } from './lib/dashboardFilters';
+import { useTaskRealtime } from './hooks/useTaskRealtime';
 import TaskListByDay from './components/TaskListByDay';
 import { useToast } from './context/ToastContext.jsx';
 
@@ -121,7 +117,8 @@ export default function Dashboard({ onResetConfig }) {
   const [showChecklistSettings, setShowChecklistSettings] = useState(false);
   const [generatingChecklists, setGeneratingChecklists] = useState(false);
   const [postFilter, setPostFilter] = useState('all');
-  const realtimeChannelRef = useRef(null);
+  const [restaurantId, setRestaurantId] = useState(null);
+  const [teamMembers, setTeamMembers] = useState([]);
   /** Évite double getUserRestaurant + loadTasks quand getSession() et onAuthStateChange arrivent à la suite (latence reconnexion). */
   const sessionHydrateBurstRef = useRef({ uid: null, at: 0 });
   const loadTasksInFlightRef = useRef(null);
@@ -130,6 +127,7 @@ export default function Dashboard({ onResetConfig }) {
   /** true pendant signIn + onEnter : bloque les hydratations parallèles (Safari mobile). */
   const authFlowInProgressRef = useRef(false);
   const hydrateSessionRef = useRef(null);
+  const loadTasksRef = useRef(null);
 
   // ─── Auth & session ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -150,23 +148,38 @@ export default function Dashboard({ onResetConfig }) {
       try {
         const metaName = session.user.user_metadata?.restaurant_name || '';
         const memberLabel = session.user.user_metadata?.member_display_name;
-        setUserName(
-          memberLabel ||
-            (session.user.is_anonymous ? 'Équipe' : session.user.email) ||
-            'Équipe'
-        );
         setOnboardingDefaultName(metaName);
         const resto = await getUserRestaurant();
         if (!resto) {
           setNeedsOnboarding(true);
+          setRestaurantId(null);
+          setUserName(
+            memberLabel ||
+              (session.user.is_anonymous ? 'Équipe' : session.user.email) ||
+              'Équipe'
+          );
           setIsNameSet(true);
           setLoading(false);
         } else {
           setUserRole(resto.role);
+          setRestaurantId(resto.id);
           setNeedsOnboarding(false);
+          const resolvedName =
+            resto.displayName ||
+            memberLabel ||
+            (session.user.is_anonymous ? null : session.user.email) ||
+            resto.name ||
+            'Équipe';
+          setUserName(resolvedName);
           setIsNameSet(true);
           loadTasks();
-          setupRealtimeSync(resto.id);
+          if (canManage(resto.role)) {
+            getTeamMembers()
+              .then((team) => setTeamMembers(Array.isArray(team) ? team : []))
+              .catch(() => setTeamMembers([]));
+          } else {
+            setTeamMembers([]);
+          }
         }
       } finally {
         queueMicrotask(() => setPostAuthPending(false));
@@ -211,20 +224,25 @@ export default function Dashboard({ onResetConfig }) {
           setIsNameSet(false);
           setUserName('');
           setUserRole(null);
+          setRestaurantId(null);
+          setTeamMembers([]);
           setNeedsOnboarding(false);
           setPostAuthPending(false);
-          if (realtimeChannelRef.current) {
-            supabase.removeChannel(realtimeChannelRef.current);
-            realtimeChannelRef.current = null;
-          }
         }
       });
       return () => {
         subscription?.unsubscribe();
-        if (realtimeChannelRef.current) supabase.removeChannel(realtimeChannelRef.current);
       };
     }
   }, []);
+
+  useTaskRealtime({
+    supabase,
+    restaurantId,
+    enabled: Boolean(isNameSet && restaurantId && !needsOnboarding),
+    onPatch: setTasks,
+    onNeedRefresh: () => loadTasksRef.current?.({ mode: 'realtime' }),
+  });
 
   useEffect(() => {
     if (!postAuthPending) return undefined;
@@ -235,19 +253,6 @@ export default function Dashboard({ onResetConfig }) {
     }, 25000);
     return () => clearTimeout(t);
   }, [postAuthPending]);
-
-  const setupRealtimeSync = (restaurantId) => {
-    if (!supabase || realtimeChannelRef.current) return;
-    const channel = supabase
-      .channel(`tasks:${restaurantId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `restaurant_id=eq.${restaurantId}` }, () => {
-        // Realtime: ne relance pas le pipeline complet (planning + rollover + upserts),
-        // on rafraîchit seulement les tâches pour garder une UI fluide.
-        loadTasks({ mode: 'realtime' });
-      })
-      .subscribe();
-    realtimeChannelRef.current = channel;
-  };
 
   const stats = useMemo(() => {
     const completed = tasks.filter(t => t.completed).length;
@@ -390,6 +395,7 @@ export default function Dashboard({ onResetConfig }) {
     })();
     return loadTasksInFlightRef.current;
   };
+  loadTasksRef.current = loadTasks;
 
   // ─── Actions sur les tâches ───────────────────────────────────────────────────
   const addTask = async () => {
@@ -562,44 +568,14 @@ export default function Dashboard({ onResetConfig }) {
     if (onResetConfig) onResetConfig();
   };
 
-  const getFilteredTasks = () => {
-    let list;
-    const todayYmd = getTodayDate();
-    const visibleTasks = tasks.filter((t) => !isBeforeYesterday(t, todayYmd));
-    switch (filter) {
-      case 'active':
-        list = visibleTasks.filter((t) => !t.completed && t.status !== TASK_STATUS_DONE);
-        break;
-      case 'completed':
-        list = visibleTasks.filter((t) => t.completed || t.status === TASK_STATUS_DONE);
-        break;
-      case 'my-tasks':
-        list = visibleTasks.filter((t) => t.assignedTo === userName);
-        break;
-      case TASK_TYPE_QUOTIDIEN:
-      case TASK_TYPE_ANNEXE:
-      case TASK_TYPE_SEMAINE:
-        list = visibleTasks.filter((t) => (t.taskType || TASK_TYPE_ANNEXE) === filter);
-        break;
-      default:
-        list = visibleTasks.filter((t) => {
-          const day = taskScheduledDay(t, todayYmd);
-          const yesterdayYmd = getYesterdayYmd(todayYmd);
-          // Vue principale: seulement aujourd'hui et hier.
-          if (day < yesterdayYmd) return false;
-          // Les tâches terminées des jours passés restent consultables via le calendrier.
-          if (day < todayYmd && isTaskDone(t)) return false;
-          return true;
-        });
-    }
-    if (postFilter !== 'all') {
-      list = list.filter((t) => !t.post || t.post === postFilter || t.post === 'all');
-    }
-    if (listFilter !== TASK_LIST_ALL) {
-      list = list.filter((t) => matchesTaskListFilter(t, listFilter));
-    }
-    return list;
-  };
+  const getFilteredTasks = () =>
+    filterDashboardTasks({
+      tasks,
+      filter,
+      postFilter,
+      listFilter,
+      userName,
+    });
 
   // ─── Écrans de garde ──────────────────────────────────────────────────────────
   if (!isNameSet) {
@@ -903,6 +879,12 @@ export default function Dashboard({ onResetConfig }) {
           isOpen={showTeam}
           onClose={() => setShowTeam(false)}
           onJoined={() => { setShowTeam(false); loadTasks(); }}
+          onDisplayNameChanged={(name) => {
+            setUserName(name);
+            getTeamMembers()
+              .then((team) => setTeamMembers(Array.isArray(team) ? team : []))
+              .catch(() => {});
+          }}
         />
 
         <YearCalendarPlanner
@@ -996,13 +978,31 @@ export default function Dashboard({ onResetConfig }) {
                     {/* Assigné à */}
                     <div className="space-y-1">
                       <label className="block text-sm font-medium text-slate-600">Assigné à (optionnel)</label>
-                      <input
-                        type="text"
-                        placeholder="Nom du manager..."
-                        value={newTask.assignedTo}
-                        onChange={e => setNewTask(t => ({ ...t, assignedTo: e.target.value }))}
-                        className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 placeholder-slate-400"
-                      />
+                      {teamMembers.some((m) => m.displayName) ? (
+                        <select
+                          value={newTask.assignedTo}
+                          onChange={(e) => setNewTask((t) => ({ ...t, assignedTo: e.target.value }))}
+                          className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800"
+                        >
+                          <option value="">— Non assigné —</option>
+                          {teamMembers
+                            .filter((m) => m.displayName)
+                            .map((m) => (
+                              <option key={m.userId} value={m.displayName}>
+                                {m.displayName}
+                                {m.role === 'owner' ? ' (gérant)' : m.role === 'manager' ? ' (manager)' : ''}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          placeholder="Prénom du collègue..."
+                          value={newTask.assignedTo}
+                          onChange={(e) => setNewTask((t) => ({ ...t, assignedTo: e.target.value }))}
+                          className="w-full px-4 py-2.5 border border-slate-300 rounded-xl text-slate-800 placeholder-slate-400"
+                        />
+                      )}
                     </div>
 
                     {/* Deadline */}

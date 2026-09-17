@@ -1,52 +1,47 @@
-# Déployer la même app pour un autre Pitaya (base de données différente)
+# Ajouter un autre restaurant Pitaya (DailyDo SaaS)
 
-Tu peux utiliser **le même code** pour un deuxième restaurant Pitaya (ex. PITAYA LYON) avec une **base de données séparée**. Deux façons de faire :
-
----
-
-## Option 1 : Un seul dépôt, deux déploiements Vercel (recommandé)
-
-1. **Crée un nouveau projet sur Vercel** (ou une deuxième “équipe” / projet) qui pointe vers **le même dépôt GitHub** que Pitaya BÉTHUNE.
-
-2. **Configure les variables d’environnement** pour ce nouveau déploiement :
-   - **`VITE_SITE_NAME`** = le nom affiché partout, ex. `PITAYA LYON`
-   - **`VITE_STORAGE_KEY`** = une clé unique pour les tâches, ex. `restaurant-tasks-shared-pitaya-lyon`  
-     → Même projet Supabase possible : une clé = une liste de tâches. Chaque Pitaya a sa propre liste.
-   - **`VITE_SUPABASE_URL`** et **`VITE_SUPABASE_ANON_KEY`** :
-     - soit **un nouveau projet Supabase** (base totalement séparée),
-     - soit **le même projet** que BÉTHUNE : dans ce cas seule la clé `VITE_STORAGE_KEY` change, les données sont séparées par clé.
-
-3. **Déploie**. Tu obtiens une **deuxième URL** (ex. `pitaya-tasks-lyon.vercel.app`). C’est la même appli, avec un autre nom et une autre base (nom + clé de stockage différents).
-
-**Résumé :**  
-- BÉTHUNE : pas de `VITE_SITE_NAME` / `VITE_STORAGE_KEY` (ou les laisser par défaut) + ton Supabase actuel.  
-- Autre Pitaya : `VITE_SITE_NAME` = nom du site, `VITE_STORAGE_KEY` = clé unique, et soit même Supabase (données séparées par clé), soit autre projet Supabase.
+DailyDo est **multi-tenant** sur **un seul** projet Supabase (`dailydo-saas`) + Auth/RLS.
+Chaque restaurant = une ligne `restaurants` + des `user_roles`. **Pas** besoin d’un second
+déploiement Vercel ni d’une clé `VITE_STORAGE_KEY` (modèle obsolète `app_storage`).
 
 ---
 
-## Option 2 : Projet Supabase dédié pour l’autre Pitaya
+## Option recommandée : même app, nouveau restaurant
 
-Si tu veux une **base de données entièrement séparée** (autre projet Supabase) :
+1. Ouvrir **https://www.dailydo-saas.app**
+2. Onglet **Gérant** → créer le compte avec le **nom du restaurant** + mot de passe
+3. Configurer planning / checklists
+4. **Équipe** → partager le **code d’invitation** (rotatif, expire)
+5. L’équipe rejoint via **Équipe** (prénom + code) — session anonyme sur la tablette
 
-1. Crée un **nouveau projet** sur [supabase.com](https://supabase.com).
-2. Dans ce projet : **SQL Editor** → exécute le même script **`supabase-setup.sql`** que pour BÉTHUNE.
-3. **Project Settings** → **API** : récupère la **Project URL** et la clé **anon**.
-4. Sur **Vercel** (nouveau projet pour l’autre Pitaya), définis :
-   - **`VITE_SITE_NAME`** = ex. `PITAYA LYON`
-   - **`VITE_STORAGE_KEY`** = ex. `restaurant-tasks-shared` (tu peux garder la même clé car la base est différente)
-   - **`VITE_SUPABASE_URL`** = l’URL du **nouveau** projet Supabase
-   - **`VITE_SUPABASE_ANON_KEY`** = la clé anon du **nouveau** projet
-5. Déploie. Cette instance a sa propre base, rien en commun avec BÉTHUNE.
+Les données sont isolées par `restaurant_id` (RLS). Un employé / gérant = **un** restaurant.
 
 ---
 
-## Récap des variables par déploiement
+## Quand créer un second projet Supabase ?
 
-| Variable | BÉTHUNE (défaut) | Autre Pitaya (ex. LYON) |
-|----------|-------------------|--------------------------|
-| `VITE_SITE_NAME` | (optionnel) PITAYA BÉTHUNE | PITAYA LYON |
-| `VITE_STORAGE_KEY` | (optionnel) restaurant-tasks-shared | restaurant-tasks-shared-pitaya-lyon (si même Supabase) |
-| `VITE_SUPABASE_URL` | ton projet actuel | même ou nouveau projet |
-| `VITE_SUPABASE_ANON_KEY` | clé actuelle | même ou nouvelle clé |
+Seulement si vous voulez une **isolation totale** (autre client, autre facturation Magensy, autre région) :
 
-Une fois configuré, tu partages simplement **le lien** du déploiement (BÉTHUNE ou autre) aux managers concernés ; chaque lien = un site + une base de données.
+1. Nouveau projet Supabase
+2. Exécuter dans l’ordre (voir `docs/guides/DEPLOY_CHECKLIST.md`) :
+   - `docs/supabase-dailydo-complete-fix.sql`
+   - `docs/supabase-security-hardening.sql`
+   - `docs/supabase-phase1-ops.sql` (si ops / checklists)
+   - `docs/supabase-p0-hardening.sql`
+   - `docs/supabase-p1-team-deadline.sql`
+3. Nouveau projet Vercel pointant sur le **même** dépôt, avec :
+   - `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` du **nouveau** projet
+4. Auth → activer **Anonymous** (accès équipe par code)
+
+Ne plus utiliser `VITE_STORAGE_KEY` pour séparer les Pitaya : ce n’est plus le modèle Auth.
+
+---
+
+## Récap
+
+| Besoin | Approche |
+|--------|----------|
+| 2e / 3e Pitaya (même boîte) | Créer un restaurant dans la même app |
+| Client totalement séparé | Nouveau projet Supabase + Vercel |
+| Inviter l’équipe | Code 8 caractères + prénom |
+| Promouvoir un manager | Gérant → Équipe → Membres → ↑ |

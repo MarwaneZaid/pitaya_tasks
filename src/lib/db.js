@@ -1,7 +1,8 @@
 import { supabase, getSupabase } from './storage-supabase';
 import { isAuthAbortedError, sleepMs } from './authPrefs';
 import { mergeTasksWithUpsertRows } from './saveTasksMerge';
-import { statusFromDbRow, normalizeTaskFields } from './taskStatus';
+import { normalizeTaskFields } from './taskStatus';
+import { mapTaskRows } from './taskRowMap';
 import {
   buildTasksFromChecklists,
   mapChecklistRow,
@@ -92,12 +93,12 @@ async function fetchRestaurantByUserId(client, userId) {
 
   ({ data: role, error } = await client
     .from('user_roles')
-    .select('restaurant_id, role, restaurants(name, invite_code, invite_code_expires_at)')
+    .select('restaurant_id, role, display_name, restaurants(name, invite_code, invite_code_expires_at)')
     .eq('user_id', userId)
     .maybeSingle());
 
-  // Migration P0 pas encore appliquée : colonnes invite absentes.
-  if (error && /invite_code/i.test(error.message || '')) {
+  // Migrations P0/P1 pas encore appliquées : colonnes absentes.
+  if (error && /(invite_code|display_name)/i.test(error.message || '')) {
     ({ data: role, error } = await client
       .from('user_roles')
       .select('restaurant_id, role, restaurants(name)')
@@ -117,6 +118,7 @@ async function fetchRestaurantByUserId(client, userId) {
     id: role.restaurant_id,
     name: name || '',
     role: role.role,
+    displayName: role.display_name || null,
     inviteCode: embed?.invite_code || null,
     inviteCodeExpiresAt: embed?.invite_code_expires_at || null,
   };
@@ -375,34 +377,12 @@ export async function materializeChecklistsForDate(dateYmd, createdBy) {
   return saveTasks(toCreate);
 }
 
-function mapTaskRows(data) {
-  return (data || []).map((t) => {
-    const status = statusFromDbRow(t);
-    return {
-      id: t.id,
-      title: t.title,
-      category: t.category,
-      priority: t.priority,
-      taskType: t.task_type,
-      scheduledFor: t.scheduled_for,
-      assignedTo: t.assigned_to,
-      status,
-      completed: status === 'done' || !!t.completed,
-      post: t.post || null,
-      checklistId: t.checklist_id || null,
-      checklistItemKey: t.checklist_item_key || null,
-      startedAt: t.started_at || null,
-      proofNote: t.proof_note || null,
-      createdAt: t.created_at,
-      createdBy: t.created_by,
-      completedAt: t.completed_at,
-      completedBy: t.completed_by,
-    };
-  });
-}
-
 function taskToDbPayload(resto, task) {
   const norm = normalizeTaskFields(task);
+  const deadline =
+    task.deadline && String(task.deadline).trim()
+      ? new Date(task.deadline).toISOString()
+      : null;
   const payload = {
     restaurant_id: resto.id,
     title: task.title,
@@ -411,6 +391,7 @@ function taskToDbPayload(resto, task) {
     task_type: task.taskType || 'quotidien',
     scheduled_for: task.scheduledFor,
     assigned_to: task.assignedTo || null,
+    deadline,
     status: norm.status,
     completed: norm.completed,
     created_by: task.createdBy,
@@ -469,6 +450,7 @@ const CALENDAR_TASK_COLUMNS = [
   'task_type',
   'scheduled_for',
   'assigned_to',
+  'deadline',
   'status',
   'completed',
   'post',
@@ -637,14 +619,70 @@ export async function getTeamMembers() {
   const client = getClient();
   if (!client) return [];
 
-  const { data, error } = await client
+  let { data, error } = await client
     .from('user_roles')
-    .select('user_id, role')
-    .eq('restaurant_id', resto.id);
+    .select('user_id, role, display_name')
+    .eq('restaurant_id', resto.id)
+    .order('created_at', { ascending: true });
+
+  if (error && /display_name/i.test(error.message || '')) {
+    ({ data, error } = await client
+      .from('user_roles')
+      .select('user_id, role')
+      .eq('restaurant_id', resto.id));
+  }
 
   if (error) {
     console.error('getTeamMembers:', error);
     return [];
+  }
+
+  return (data || []).map((m) => ({
+    userId: m.user_id,
+    role: m.role,
+    displayName: m.display_name || null,
+  }));
+}
+
+/** Enregistre le prénom / nom d’affichage de l’utilisateur connecté. */
+export async function setMyDisplayName(name) {
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+  const { data, error } = await client.rpc('set_my_display_name', {
+    p_name: name,
+  });
+  if (error) {
+    if (error.message?.includes('function') && error.message?.includes('does not exist')) {
+      throw new Error(
+        'Migration P1 manquante. Exécutez docs/supabase-p1-team-deadline.sql dans Supabase.'
+      );
+    }
+    rethrowMappedDbError(error);
+  }
+  try {
+    await client.auth.updateUser({ data: { member_display_name: data || name } });
+  } catch (_) {
+    /* metadata best-effort */
+  }
+  clearRestaurantCache();
+  return data || name;
+}
+
+/** Gérant uniquement : promote / demote manager ↔ employee. */
+export async function updateMemberRole(userId, role) {
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+  const { data, error } = await client.rpc('update_member_role', {
+    p_user_id: userId,
+    p_role: role,
+  });
+  if (error) {
+    if (error.message?.includes('function') && error.message?.includes('does not exist')) {
+      throw new Error(
+        'Migration P1 manquante. Exécutez docs/supabase-p1-team-deadline.sql dans Supabase.'
+      );
+    }
+    rethrowMappedDbError(error);
   }
   return data;
 }
@@ -699,7 +737,7 @@ export async function rotateInviteCode(validDays = 30) {
  * Accès employé : uniquement le code d’invitation (auth anonyme Supabase).
  * Sur le même appareil, la session est conservée — pas besoin de ressaisir le code.
  */
-export async function enterTeamWithInviteCode(code) {
+export async function enterTeamWithInviteCode(code, displayName = '') {
   const client = getClient();
   if (!client) throw new Error("Supabase n'est pas configuré.");
 
@@ -708,16 +746,30 @@ export async function enterTeamWithInviteCode(code) {
     throw new Error("Code d'invitation invalide (8 caractères).");
   }
 
+  const cleanName = String(displayName || '').trim();
+  if (cleanName.length < 2) {
+    throw new Error('Indiquez votre prénom (2 caractères minimum).');
+  }
+
   let { data: { session } } = await client.auth.getSession();
   if (session) {
     const existing = await fetchRestaurantByUserId(client, session.user.id);
     if (existing) {
-      return { status: 'already', restaurant: existing };
+      if (cleanName) {
+        try {
+          await setMyDisplayName(cleanName);
+        } catch (_) {
+          /* déjà nommé */
+        }
+      }
+      return { status: 'already', restaurant: existing, displayName: cleanName };
     }
   }
 
   if (!session) {
-    const { data, error } = await client.auth.signInAnonymously();
+    const { data, error } = await client.auth.signInAnonymously({
+      options: { data: { member_display_name: cleanName } },
+    });
     if (error) {
       if (
         error.message?.includes('anonymous') ||
@@ -737,7 +789,12 @@ export async function enterTeamWithInviteCode(code) {
 
   await assertAuthUserSynced(client);
   const restaurant = await joinRestaurantByCode(normalized);
-  return { status: 'joined', restaurant };
+  try {
+    await setMyDisplayName(cleanName);
+  } catch (err) {
+    console.warn('display_name non enregistré:', err);
+  }
+  return { status: 'joined', restaurant, displayName: cleanName };
 }
 
 export async function joinRestaurantByCode(code) {

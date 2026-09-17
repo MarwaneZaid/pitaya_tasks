@@ -162,3 +162,19 @@ export function displayName(value) {
   }
   return s;
 }
+
+function normalizePersonLabel(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Vrai si la tâche est assignée à l’utilisateur courant (nom affiché ou email synthétique). */
+export function isAssignedToMe(task, userName) {
+  const assigned = normalizePersonLabel(task?.assignedTo);
+  if (!assigned || !userName) return false;
+  const me = normalizePersonLabel(userName);
+  const meDisplay = normalizePersonLabel(displayName(userName));
+  return assigned === me || (meDisplay && assigned === meDisplay);
+}
