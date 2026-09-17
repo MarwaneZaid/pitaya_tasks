@@ -149,7 +149,28 @@ export default function Dashboard({ onResetConfig }) {
         const metaName = session.user.user_metadata?.restaurant_name || '';
         const memberLabel = session.user.user_metadata?.member_display_name;
         setOnboardingDefaultName(metaName);
-        const resto = await getUserRestaurant();
+        let resto = null;
+        try {
+          resto = await getUserRestaurant();
+        } catch (loadErr) {
+          console.error(loadErr);
+          setNeedsOnboarding(false);
+          setRestaurantId(null);
+          setUserName(
+            memberLabel ||
+              (session.user.is_anonymous ? 'Équipe' : session.user.email) ||
+              'Équipe'
+          );
+          setIsNameSet(true);
+          setLoading(false);
+          showToast({
+            message:
+              loadErr?.message ||
+              'Impossible de charger votre restaurant. Vérifiez la connexion et réessayez.',
+            variant: 'error',
+          });
+          return;
+        }
         if (!resto) {
           setNeedsOnboarding(true);
           setRestaurantId(null);

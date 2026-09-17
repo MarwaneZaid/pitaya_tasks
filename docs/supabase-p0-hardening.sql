@@ -16,7 +16,7 @@ CREATE OR REPLACE FUNCTION public.my_restaurant_ids()
 RETURNS SETOF uuid
 LANGUAGE sql
 STABLE
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $$
   SELECT restaurant_id
@@ -24,7 +24,9 @@ AS $$
   WHERE user_id = auth.uid();
 $$;
 
+REVOKE ALL ON FUNCTION public.my_restaurant_ids() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.my_restaurant_ids() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.my_restaurant_ids() TO anon;
 
 -- ── 2) Codes d’invitation ─────────────────────────────────────────────────────
 

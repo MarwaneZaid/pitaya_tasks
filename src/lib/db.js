@@ -106,7 +106,11 @@ async function fetchRestaurantByUserId(client, userId) {
       .maybeSingle());
   }
 
-  if (error || !role) return null;
+  if (error) {
+    // Ne pas traiter une erreur RLS / réseau comme « pas de restaurant » (évite l’onboarding fantôme).
+    rethrowMappedDbError(error);
+  }
+  if (!role) return null;
 
   let name = nameFromRestaurantsEmbed(role.restaurants);
   if (!name) {
