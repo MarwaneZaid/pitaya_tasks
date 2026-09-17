@@ -17,7 +17,7 @@ import {
 import { summarizeDayTasks } from '../lib/taskUtils';
 import CalendarDayTaskPanel from './CalendarDayTaskPanel';
 import { buildQuotidienTasksForDate, weekdayKeyForDate } from '../lib/planningDay';
-import { deleteTask, getTasks, getTasksInRange, saveTask, saveTasks } from '../lib/db';
+import { deleteTask, getTasksInRange, saveTask, saveTasks } from '../lib/db';
 import TaskTypeSelector from './TaskTypeSelector';
 
 const PRIORITY_OPTIONS = [
@@ -26,12 +26,21 @@ const PRIORITY_OPTIONS = [
   { value: 'haute', label: '🔴 Haute' },
 ];
 
+function seedMonthTasks(seedTasks, year, monthIndex) {
+  const { start, end } = getMonthRange(year, monthIndex);
+  return (seedTasks || []).filter((t) => {
+    const d = t.scheduledFor;
+    return d && d >= start && d <= end;
+  });
+}
+
 export default function YearCalendarPlanner({
   isOpen,
   onClose,
   planningConfig,
   userName,
   isManager,
+  seedTasks = [],
   onTasksChanged,
 }) {
   const { showToast } = useToast();
@@ -50,29 +59,44 @@ export default function YearCalendarPlanner({
     priority: 'moyenne',
   });
   const detailSectionRef = useRef(null);
+  const loadReqIdRef = useRef(0);
+  const seedTasksRef = useRef(seedTasks);
+  seedTasksRef.current = seedTasks;
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState('calendar'); // calendar | details
   const [managerActionsOpen, setManagerActionsOpen] = useState(false);
 
-  const loadMonth = useCallback(async () => {
+  const loadMonth = useCallback(async ({ silent = false } = {}) => {
     if (!isOpen) return;
-    setLoadingMonth(true);
+    const reqId = ++loadReqIdRef.current;
+    if (!silent) setLoadingMonth(true);
     try {
       const { start, end } = getMonthRange(viewYear, viewMonth);
       const rows = await getTasksInRange(start, end);
+      if (reqId !== loadReqIdRef.current) return;
       setMonthTasks(rows);
     } catch (e) {
+      if (reqId !== loadReqIdRef.current) return;
       console.error(e);
       showToast({ message: 'Impossible de charger le calendrier.', variant: 'error' });
       setMonthTasks([]);
     } finally {
-      setLoadingMonth(false);
+      if (reqId === loadReqIdRef.current) setLoadingMonth(false);
     }
   }, [isOpen, viewYear, viewMonth, showToast]);
 
+  // Ouverture / changement de mois : affichage immédiat via seed, puis refresh réseau.
   useEffect(() => {
-    loadMonth();
-  }, [loadMonth]);
+    if (!isOpen) return undefined;
+    const seeded = seedMonthTasks(seedTasksRef.current, viewYear, viewMonth);
+    if (seeded.length > 0) {
+      setMonthTasks(seeded);
+      loadMonth({ silent: true });
+    } else {
+      loadMonth({ silent: false });
+    }
+    return undefined;
+  }, [isOpen, viewYear, viewMonth, loadMonth]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -87,27 +111,6 @@ export default function YearCalendarPlanner({
     setMobileView('calendar');
     setManagerActionsOpen(false);
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || !selectedDate) return;
-    let alive = true;
-    const loadSelectedDate = async () => {
-      try {
-        const rows = await getTasks(selectedDate);
-        if (!alive) return;
-        setMonthTasks((prev) => {
-          const keep = prev.filter((t) => t.scheduledFor !== selectedDate);
-          return [...keep, ...rows];
-        });
-      } catch (e) {
-        console.warn('Impossible de recharger les tâches de la date sélectionnée', e);
-      }
-    };
-    loadSelectedDate();
-    return () => {
-      alive = false;
-    };
-  }, [isOpen, selectedDate]);
 
   useEffect(() => {
     if (!isOpen || !selectedDate) return;
@@ -175,7 +178,7 @@ export default function YearCalendarPlanner({
   };
 
   const refreshAll = async () => {
-    await loadMonth();
+    await loadMonth({ silent: false });
     if (onTasksChanged) await onTasksChanged();
   };
 

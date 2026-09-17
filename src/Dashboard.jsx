@@ -911,7 +911,8 @@ export default function Dashboard({ onResetConfig }) {
           planningConfig={planningConfig}
           userName={userName}
           isManager={isManager}
-          onTasksChanged={() => loadTasks()}
+          seedTasks={tasks}
+          onTasksChanged={() => loadTasks({ mode: 'realtime' })}
         />
 
         <NotificationSettings

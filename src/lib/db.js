@@ -6,6 +6,8 @@ import {
   buildTasksFromChecklists,
   mapChecklistRow,
 } from './checklists';
+import { DASHBOARD_TASK_LOOKBACK_DAYS } from '../config/constants';
+import { daysAgoYmd } from './taskUtils';
 
 function getClient() {
   return getSupabase() || supabase;
@@ -85,11 +87,23 @@ async function fetchRestaurantNameById(client, restaurantId) {
 }
 
 async function fetchRestaurantByUserId(client, userId) {
-  const { data: role, error } = await client
+  let role = null;
+  let error = null;
+
+  ({ data: role, error } = await client
     .from('user_roles')
-    .select('restaurant_id, role, restaurants(name)')
+    .select('restaurant_id, role, restaurants(name, invite_code, invite_code_expires_at)')
     .eq('user_id', userId)
-    .maybeSingle();
+    .maybeSingle());
+
+  // Migration P0 pas encore appliquée : colonnes invite absentes.
+  if (error && /invite_code/i.test(error.message || '')) {
+    ({ data: role, error } = await client
+      .from('user_roles')
+      .select('restaurant_id, role, restaurants(name)')
+      .eq('user_id', userId)
+      .maybeSingle());
+  }
 
   if (error || !role) return null;
 
@@ -98,10 +112,13 @@ async function fetchRestaurantByUserId(client, userId) {
     name = await fetchRestaurantNameById(client, role.restaurant_id);
   }
 
+  const embed = Array.isArray(role.restaurants) ? role.restaurants[0] : role.restaurants;
   const restaurant = {
     id: role.restaurant_id,
     name: name || '',
-    role: role.role
+    role: role.role,
+    inviteCode: embed?.invite_code || null,
+    inviteCodeExpiresAt: embed?.invite_code_expires_at || null,
   };
   cachedRestaurant = restaurant;
   cachedRestaurantAt = Date.now();
@@ -118,15 +135,17 @@ export function clearRestaurantCache() {
 export async function getUserRestaurant() {
   const client = getClient();
   if (!client) return null;
-  const { data: { session } } = await client.auth.getSession();
-  if (!session?.user?.id) return null;
 
+  // Cache hit: évite getSession() (latence notable à chaque ouverture calendrier).
   if (
     cachedRestaurant &&
     Date.now() - cachedRestaurantAt < RESTAURANT_CACHE_MS
   ) {
     return cachedRestaurant;
   }
+
+  const { data: { session } } = await client.auth.getSession();
+  if (!session?.user?.id) return null;
 
   if (inflightUserRestaurant) return inflightUserRestaurant;
 
@@ -406,11 +425,16 @@ function taskToDbPayload(resto, task) {
   return payload;
 }
 
-export async function getTasks(dateFilter = null) {
+export async function getTasks(dateFilter = null, options = {}) {
   const resto = await getUserRestaurant();
   if (!resto) return [];
   const client = getClient();
   if (!client) return [];
+
+  const sinceDays =
+    options.sinceDays === null || options.sinceDays === undefined
+      ? DASHBOARD_TASK_LOOKBACK_DAYS
+      : options.sinceDays;
 
   let query = client
     .from('tasks')
@@ -420,6 +444,12 @@ export async function getTasks(dateFilter = null) {
 
   if (dateFilter) {
     query = query.eq('scheduled_for', dateFilter);
+  } else if (sinceDays !== null && sinceDays !== false) {
+    // Fenêtre récente + annexes non terminées (rollover) hors fenêtre.
+    const cutoff = daysAgoYmd(sinceDays);
+    query = query.or(
+      `scheduled_for.gte.${cutoff},and(task_type.eq.annexe,completed.eq.false)`
+    );
   }
 
   const { data, error } = await query;
@@ -430,6 +460,28 @@ export async function getTasks(dateFilter = null) {
   return mapTaskRows(data);
 }
 
+/** Colonnes suffisantes pour le calendrier (grille + détail jour). */
+const CALENDAR_TASK_COLUMNS = [
+  'id',
+  'title',
+  'category',
+  'priority',
+  'task_type',
+  'scheduled_for',
+  'assigned_to',
+  'status',
+  'completed',
+  'post',
+  'checklist_id',
+  'checklist_item_key',
+  'started_at',
+  'proof_note',
+  'created_at',
+  'created_by',
+  'completed_at',
+  'completed_by',
+].join(',');
+
 /** Tâches planifiées entre deux dates incluses (YYYY-MM-DD). */
 export async function getTasksInRange(startDate, endDate) {
   const resto = await getUserRestaurant();
@@ -439,7 +491,7 @@ export async function getTasksInRange(startDate, endDate) {
 
   const { data, error } = await client
     .from('tasks')
-    .select('*')
+    .select(CALENDAR_TASK_COLUMNS)
     .eq('restaurant_id', resto.id)
     .gte('scheduled_for', startDate)
     .lte('scheduled_for', endDate)
@@ -459,13 +511,27 @@ export async function saveTask(task) {
   const client = getClient();
   if (!client) return null;
 
-  const dbTask = taskToDbPayload(resto, task);
-
   const isExisting =
     typeof task.id === 'string' && task.id.length > 20;
 
   // Upsert exige INSERT + UPDATE en RLS : les employés n'ont que UPDATE → update() pour les lignes existantes.
   if (isExisting) {
+    // Employé : n’envoie que les champs de progression (aligné trigger SQL P0).
+    const dbTask =
+      resto.role === 'employee'
+        ? (() => {
+            const norm = normalizeTaskFields(task);
+            return {
+              status: norm.status,
+              completed: norm.completed,
+              started_at: norm.startedAt,
+              completed_at: norm.completedAt,
+              completed_by: norm.completedBy,
+              proof_note: task.proofNote || null,
+            };
+          })()
+        : taskToDbPayload(resto, task);
+
     const { data, error } = await client
       .from('tasks')
       .update(dbTask)
@@ -481,6 +547,7 @@ export async function saveTask(task) {
     return mapTaskRows([data])[0];
   }
 
+  const dbTask = taskToDbPayload(resto, task);
   const { data, error } = await client
     .from('tasks')
     .insert([dbTask])
@@ -586,8 +653,46 @@ export async function getInviteCode() {
   const resto = await getUserRestaurant();
   if (!resto) return null;
 
-  // On utilise l'ID du restaurant comme base du code d'invitation (les 8 premiers chars de l'UUID)
+  // Code rotatif en base (P0) ; fallback UUID legacy si migration non appliquée.
+  if (resto.inviteCode) {
+    return String(resto.inviteCode).toUpperCase();
+  }
+
+  try {
+    const client = getClient();
+    if (!client) return resto.id.substring(0, 8).toUpperCase();
+    const { data, error } = await client.rpc('get_restaurant_invite_code');
+    if (!error && data?.code) {
+      clearRestaurantCache();
+      return String(data.code).toUpperCase();
+    }
+  } catch (_) {
+    /* migration pas encore appliquée */
+  }
+
   return resto.id.substring(0, 8).toUpperCase();
+}
+
+/** Régénère le code d’invitation (expire dans p_valid_days jours). Manager+ only. */
+export async function rotateInviteCode(validDays = 30) {
+  const client = getClient();
+  if (!client) throw new Error("Supabase n'est pas configuré.");
+  const { data, error } = await client.rpc('rotate_restaurant_invite_code', {
+    p_valid_days: validDays,
+  });
+  if (error) {
+    if (error.message?.includes('function') && error.message?.includes('does not exist')) {
+      throw new Error(
+        'Migration P0 manquante. Exécutez docs/supabase-p0-hardening.sql dans Supabase.'
+      );
+    }
+    rethrowMappedDbError(error);
+  }
+  clearRestaurantCache();
+  return {
+    code: data?.code ? String(data.code).toUpperCase() : null,
+    expiresAt: data?.expires_at || null,
+  };
 }
 
 /**

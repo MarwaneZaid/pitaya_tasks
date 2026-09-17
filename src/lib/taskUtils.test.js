@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   displayName,
   dayDiffFromToday,
+  daysAgoYmd,
   getYesterdayYmd,
   groupTasksByDay,
   isBeforeYesterday,
@@ -149,6 +150,11 @@ describe('groupTasksByDay', () => {
 
   it('getYesterdayYmd recule d’un jour', () => {
     expect(getYesterdayYmd('2026-05-20')).toBe('2026-05-19');
+  });
+
+  it('daysAgoYmd recule de N jours', () => {
+    expect(daysAgoYmd(14, '2026-05-20')).toBe('2026-05-06');
+    expect(daysAgoYmd(0, '2026-05-20')).toBe('2026-05-20');
   });
 
   it('taskScheduledDay utilise createdAt si scheduledFor absent', () => {

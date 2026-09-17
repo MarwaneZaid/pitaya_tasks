@@ -10,7 +10,10 @@ Utilisez cette liste pour une mise en production **sans surprise**. Cochez au fu
 - **SQL Editor** — exécuter dans cet ordre (même ordre en prod / preview / clone) :
   1. **`docs/supabase-dailydo-complete-fix.sql`** en entier (schéma, RLS, RPC, Realtime : `tasks` dans `supabase_realtime` + `REPLICA IDENTITY FULL` pour les filtres `restaurant_id`).
   2. **`docs/supabase-security-hardening.sql`** dans une **nouvelle** requête (`set_updated_at` / `search_path`, `app_storage` si présente).
+  3. **`docs/supabase-phase1-ops.sql`** (checklists / status) si pas déjà appliqué.
+  4. **`docs/supabase-p0-hardening.sql`** — codes invite rotatifs, trigger employé, `my_restaurant_ids()`.
 - Vérifier que les tables `restaurants`, `user_roles`, `planning_templates`, `tasks` existent et que **RLS** est activé sur chacune.
+- **P0 ops** : déployer `supabase/functions/daily-materialize` + cron (`docs/supabase-p0-daily-materialize-cron.sql`) avec secret `CRON_SECRET`.
 - Schéma minimal hérité : `docs/supabase-mcp-fix-dailydo-saas.sql` (alignement ancien schéma ; ne remplace pas le couple canonique ci-dessus pour un nouveau projet).
 - **Realtime** : **Database → Publications** → `supabase_realtime` doit lister **`public.tasks`**. En cas de doute, réexécuter la section Realtime du `complete-fix` (idempotent). Le dashboard **Realtime** du projet ne doit pas exclure cette table par une règle qui bloquerait `postgres_changes`.
 - Alternative historique : `supabase-setup.sql` — vérifier RPC join / Realtime ; pour tout nouveau déploiement, préférer le couple `docs/` ci-dessus.

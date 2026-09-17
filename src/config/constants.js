@@ -45,6 +45,9 @@ export const FILTER_OPTIONS = [
 
 export const DEFAULT_SITE_NAME = 'Mon Restaurant';
 
+/** Fenêtre de chargement dashboard (jours). Le calendrier garde getTasksInRange. */
+export const DASHBOARD_TASK_LOOKBACK_DAYS = 14;
+
 /** URL publique de l’app (liens, redirects). Surcharge : VITE_APP_ORIGIN sur Vercel si besoin. */
 export const APP_PUBLIC_ORIGIN = (() => {
   const v = typeof import.meta.env.VITE_APP_ORIGIN === 'string' ? import.meta.env.VITE_APP_ORIGIN.trim() : '';

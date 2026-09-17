@@ -15,6 +15,13 @@ export function getYesterdayYmd(todayYmd = getTodayYmd()) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Recule de N jours (YYYY-MM-DD). */
+export function daysAgoYmd(days, todayYmd = getTodayYmd()) {
+  const d = new Date(`${todayYmd}T12:00:00`);
+  d.setDate(d.getDate() - Math.max(0, Number(days) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
 /** Date planifiée d’une tâche (YYYY-MM-DD). */
 export function taskScheduledDay(task, fallbackToday = getTodayYmd()) {
   return task.scheduledFor || (task.createdAt && task.createdAt.slice(0, 10)) || fallbackToday;
