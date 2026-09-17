@@ -569,6 +569,10 @@ export async function saveTasks(tasksArray) {
   if (withoutId.length > 0) {
     const { data, error } = await client.from('tasks').insert(withoutId).select();
     if (error) {
+      // Course cron/client : ignore les doublons, l’appelant rechargera.
+      if (error.code === '23505' || /duplicate key|unique constraint/i.test(error.message || '')) {
+        return [];
+      }
       console.error('Erreur saveTasks (insert):', error);
       throw error;
     }

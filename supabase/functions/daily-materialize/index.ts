@@ -58,6 +58,13 @@ function templateAppliesOnDate(template, dateYmd) {
   return false;
 }
 
+function isUniqueViolation(error) {
+  return (
+    error?.code === '23505' ||
+    /duplicate key|unique constraint/i.test(error?.message || '')
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -154,9 +161,13 @@ Deno.serve(async (req) => {
         (existingToday || []).map((t) => String(t.title || '').trim())
       );
 
-      const toInsert = templates
-        .filter((t) => t?.title && String(t.title).trim())
-        .map((t) => String(t.title).trim())
+      const toInsert = [
+        ...new Set(
+          templates
+            .filter((t) => t?.title && String(t.title).trim())
+            .map((t) => String(t.title).trim())
+        ),
+      ]
         .filter((title) => !existingTitles.has(title))
         .map((title) => {
           const item = templates.find(
@@ -178,6 +189,9 @@ Deno.serve(async (req) => {
       if (toInsert.length > 0) {
         const { error } = await admin.from('tasks').insert(toInsert);
         if (!error) createdQuotidien += toInsert.length;
+        else if (!isUniqueViolation(error)) {
+          console.error('quotidien insert', resto.id, error.message);
+        }
       }
     }
 
@@ -227,6 +241,9 @@ Deno.serve(async (req) => {
       if (clInsert.length > 0) {
         const { error } = await admin.from('tasks').insert(clInsert);
         if (!error) createdChecklist += clInsert.length;
+        else if (!isUniqueViolation(error)) {
+          console.error('checklist insert', resto.id, error.message);
+        }
       }
     }
   }

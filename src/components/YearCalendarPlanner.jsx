@@ -214,7 +214,9 @@ export default function YearCalendarPlanner({
     if (!isManager || !planningConfig) return;
     setBusy(true);
     try {
-      const existing = (tasksByDate[selectedDate] || []).map((t) => t.title);
+      const existing = (tasksByDate[selectedDate] || []).map((t) =>
+        String(t.title || '').trim()
+      );
       const toCreate = buildQuotidienTasksForDate(
         planningConfig,
         selectedDate,

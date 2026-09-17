@@ -370,30 +370,42 @@ export default function Dashboard({ onResetConfig }) {
         }
 
         if (!isFirstTime && currentConfig) {
-          const existing = new Set(
-            list.filter((t) => !t.completed || t.scheduledFor === today).map((t) => t.title)
-          );
-          const newTasks = buildQuotidienTasksForDate(
-            currentConfig,
-            today,
-            existing,
-            userName || 'Système'
-          );
-          if (newTasks.length > 0) {
-            const savedTasks = await saveTasks(newTasks);
-            list.push(...savedTasks);
-          }
-
-          try {
-            const checklistTasks = await materializeChecklistsForDate(
+          // Matérialisation quotidienne = Edge Function / cron (évite les doublons
+          // quand plusieurs onglets ou le cron + le client écrivent en même temps).
+          // Fallback uniquement s’il n’existe encore aucune tâche pour aujourd’hui.
+          const hasTodayTasks = list.some((t) => t.scheduledFor === today);
+          if (!hasTodayTasks) {
+            const existing = new Set(
+              list
+                .filter((t) => t.scheduledFor === today)
+                .map((t) => String(t.title || '').trim())
+            );
+            const newTasks = buildQuotidienTasksForDate(
+              currentConfig,
               today,
+              existing,
               userName || 'Système'
             );
-            if (checklistTasks.length > 0) {
-              list.push(...checklistTasks);
+            if (newTasks.length > 0) {
+              try {
+                const savedTasks = await saveTasks(newTasks);
+                list.push(...savedTasks);
+              } catch (matErr) {
+                console.warn('Matérialisation planning ignorée:', matErr);
+              }
             }
-          } catch (checklistErr) {
-            console.warn('Checklists non matérialisées:', checklistErr);
+
+            try {
+              const checklistTasks = await materializeChecklistsForDate(
+                today,
+                userName || 'Système'
+              );
+              if (checklistTasks.length > 0) {
+                list.push(...checklistTasks);
+              }
+            } catch (checklistErr) {
+              console.warn('Checklists non matérialisées:', checklistErr);
+            }
           }
         }
 
