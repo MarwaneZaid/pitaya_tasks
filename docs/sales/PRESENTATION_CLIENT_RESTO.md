@@ -30,8 +30,8 @@ Objectif: présenter DailyDo en 10-15 minutes, de façon claire et orientée ré
 ## 3) Démo produit (8-10 minutes)
 
 ## Étape A - Tableau de bord (2 min)
-- Montrer la page principale
-- Expliquer: "Ici, vous voyez toutes les tâches du jour et l'avancement global"
+- Ouvrir la vue **Checklists** (ne pas montrer une liste « Tout » trop longue)
+- Expliquer: "Ici, vous voyez les tâches du jour et l'avancement"
 - Pointer les indicateurs: total / terminées / en cours / urgentes
 
 ### Phrase clé
@@ -39,14 +39,15 @@ Objectif: présenter DailyDo en 10-15 minutes, de façon claire et orientée ré
 
 ## Étape B - Exécution des tâches (2 min)
 - Cliquer une tâche: À faire -> En cours -> Terminée
-- Montrer la note/preuve
+- Montrer la note/preuve si disponible
 
 ### Phrase clé
 "On passe d'un ressenti à une preuve opérationnelle."
 
-## Étape C - Planning hebdo (2 min)
-- Ouvrir le planning (lundi -> dimanche)
-- Montrer que les tâches se génèrent automatiquement chaque jour
+## Étape C - Nettoyage + Planning (2 min)
+- Basculer Vue → **Nettoyage**
+- Ouvrir le planning (lundi -> dimanche) côté gérant
+- Montrer que les tâches se génèrent automatiquement chaque jour (cron serveur)
 
 ### Phrase clé
 "Le planning est préparé une fois, puis il tourne tous les jours."
@@ -60,8 +61,8 @@ Objectif: présenter DailyDo en 10-15 minutes, de façon claire et orientée ré
 "Vous pouvez revenir à n'importe quel jour pour vérifier l'exécution réelle."
 
 ## Étape E - Équipe (1-2 min)
-- Montrer le code d'invitation équipe
-- Expliquer la connexion employé simple
+- Montrer le code d'invitation équipe (rotatif / expiration)
+- Expliquer: prénom + code, pas besoin d'e-mail employé
 
 ### Phrase clé
 "Déploiement rapide: pas besoin de former tout le monde pendant des heures."
