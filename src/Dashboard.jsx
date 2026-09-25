@@ -47,7 +47,7 @@ import {
   TASK_STATUS_DONE,
   OPS_POSTS,
   TASK_LIST_CHECKLIST,
-  TASK_LIST_FILTER_OPTIONS,
+  TASK_LIST_NETTOYAGE,
 } from './config/opsConstants';
 import { clearLastAuthEmail } from './lib/authPrefs';
 import LoginScreen from './components/LoginScreen';
@@ -98,7 +98,6 @@ export default function Dashboard({ onResetConfig }) {
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const [showEndOfDayReminder, setShowEndOfDayReminder] = useState(false);
   const [filter, setFilter] = useState('all');
-  const [listFilter, setListFilter] = useState(TASK_LIST_CHECKLIST);
   const [userName, setUserName] = useState('');
   const [userRole, setUserRole] = useState(null); // 'owner' | 'manager' | 'employee'
   const [isNameSet, setIsNameSet] = useState(false);
@@ -601,7 +600,7 @@ export default function Dashboard({ onResetConfig }) {
     if (onResetConfig) onResetConfig();
   };
 
-  const getFilteredTasks = () =>
+  const getFilteredTasks = (listFilter) =>
     filterDashboardTasks({
       tasks,
       filter,
@@ -684,7 +683,8 @@ export default function Dashboard({ onResetConfig }) {
   }
   if (needsOnboarding) return <Onboarding defaultName={onboardingDefaultName} onComplete={() => { setNeedsOnboarding(false); loadTasks(); }} />;
 
-  const filtered = getFilteredTasks();
+  const filteredChecklist = getFilteredTasks(TASK_LIST_CHECKLIST);
+  const filteredNettoyage = getFilteredTasks(TASK_LIST_NETTOYAGE);
   const todayYmd = getTodayDate();
   const statusSortOrder = { in_progress: 0, todo: 1, done: 2 };
   const taskStatusKey = (t) => t.status || (t.completed ? 'done' : 'todo');
@@ -705,15 +705,21 @@ export default function Dashboard({ onResetConfig }) {
       return (order[a.priority] ?? 2) - (order[b.priority] ?? 2);
     });
 
-  const sorted = sortTasks(filtered);
-  const rawGroups = groupTasksByDay(sorted, todayYmd);
-  const taskGroups = {
-    ...rawGroups,
-    today: sortTasks(rawGroups.today),
-    yesterday: sortTasks(rawGroups.yesterday),
-    other: sortTasks(rawGroups.other),
+  const buildGroups = (list) => {
+    const sorted = sortTasks(list);
+    const rawGroups = groupTasksByDay(sorted, todayYmd);
+    return {
+      ...rawGroups,
+      today: sortTasks(rawGroups.today),
+      yesterday: sortTasks(rawGroups.yesterday),
+      other: sortTasks(rawGroups.other),
+      total: sorted.length,
+    };
   };
-  const totalVisible = sorted.length;
+
+  const checklistGroups = buildGroups(filteredChecklist);
+  const nettoyageGroups = buildGroups(filteredNettoyage);
+  const totalVisible = checklistGroups.total + nettoyageGroups.total;
 
   const roleInfo  = ROLE_LABELS[userRole] || ROLE_LABELS.employee;
   const isManager = canManage(userRole);
@@ -1082,32 +1088,7 @@ export default function Dashboard({ onResetConfig }) {
             </div>
           )}
 
-          {/* ── Vue checklist / nettoyage ─────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-600 mr-1">Vue :</span>
-            {TASK_LIST_FILTER_OPTIONS.map(({ id, label }) => {
-              const isActive = listFilter === id;
-              const activeClass =
-                id === 'checklist' ? 'bg-violet-600 text-white' :
-                id === 'nettoyage' ? 'bg-emerald-600 text-white' :
-                'bg-slate-700 text-white';
-              return (
-                <button
-                  type="button"
-                  key={id}
-                  onClick={() => setListFilter(id)}
-                  aria-pressed={isActive}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? activeClass : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* ── Filtres ───────────────────────────────────────────────────── */}
+          {/* ── Filtres type (quotidien / annexe / semaine) ───────────────── */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-slate-600 mr-1">Filtrer :</span>
             {FILTER_OPTIONS.map(({ id, label, color }) => {
@@ -1152,7 +1133,7 @@ export default function Dashboard({ onResetConfig }) {
             )}
           </div>
 
-          {/* ── Liste des tâches ──────────────────────────────────────────── */}
+          {/* ── Listes : Checklists puis Nettoyage (plus de sélecteur Vue) ── */}
           {loading ? (
             <div
               className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500"
@@ -1165,18 +1146,39 @@ export default function Dashboard({ onResetConfig }) {
             </div>
           ) : totalVisible === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-              {listFilter === 'checklist'
-                ? 'Aucune checklist pour aujourd\'hui'
-                : 'Aucune tâche de nettoyage pour aujourd\'hui'}
+              Aucune tâche pour aujourd&apos;hui
             </div>
           ) : (
-            <TaskListByDay
-              groups={taskGroups}
-              advanceTaskStatus={advanceTaskStatus}
-              onProofNoteChange={updateProofNote}
-              deleteTask={deleteTaskAction}
-              canDelete={isManager}
-            />
+            <div className="space-y-6">
+              {checklistGroups.total > 0 && (
+                <section className="space-y-3" aria-labelledby="section-checklists">
+                  <h2 id="section-checklists" className="text-sm font-semibold text-violet-800 uppercase tracking-wide px-1">
+                    Checklists ({checklistGroups.total})
+                  </h2>
+                  <TaskListByDay
+                    groups={checklistGroups}
+                    advanceTaskStatus={advanceTaskStatus}
+                    onProofNoteChange={updateProofNote}
+                    deleteTask={deleteTaskAction}
+                    canDelete={isManager}
+                  />
+                </section>
+              )}
+              {nettoyageGroups.total > 0 && (
+                <section className="space-y-3" aria-labelledby="section-nettoyage">
+                  <h2 id="section-nettoyage" className="text-sm font-semibold text-emerald-800 uppercase tracking-wide px-1">
+                    Nettoyage ({nettoyageGroups.total})
+                  </h2>
+                  <TaskListByDay
+                    groups={nettoyageGroups}
+                    advanceTaskStatus={advanceTaskStatus}
+                    onProofNoteChange={updateProofNote}
+                    deleteTask={deleteTaskAction}
+                    canDelete={isManager}
+                  />
+                </section>
+              )}
+            </div>
           )}
         </div>
       </div>
