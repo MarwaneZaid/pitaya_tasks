@@ -1,5 +1,5 @@
 import { supabase, getSupabase } from './storage-supabase';
-import { isAuthAbortedError, sleepMs } from './authPrefs';
+import { withRetry, isAuthAbortedError } from './authRetry';
 import { mergeTasksWithUpsertRows } from './saveTasksMerge';
 import { normalizeTaskFields } from './taskStatus';
 import { mapTaskRows } from './taskRowMap';
@@ -157,17 +157,10 @@ export async function getUserRestaurant() {
 
   const userId = session.user.id;
   inflightUserRestaurant = (async () => {
-    let lastError;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        return await fetchRestaurantByUserId(client, userId);
-      } catch (e) {
-        lastError = e;
-        if (!isAuthAbortedError(e) || attempt >= 3) throw e;
-        await sleepMs(350 * (attempt + 1));
-      }
-    }
-    throw lastError;
+    return withRetry(
+      () => fetchRestaurantByUserId(client, userId),
+      { maxAttempts: 3, baseDelayMs: 350 }
+    );
   })().finally(() => {
     inflightUserRestaurant = null;
   });
@@ -186,7 +179,10 @@ export async function createRestaurant(name) {
 
   const [, prior] = await Promise.all([
     assertAuthUserSynced(client),
-    fetchRestaurantByUserId(client, userId),
+    withRetry(
+      () => fetchRestaurantByUserId(client, userId),
+      { maxAttempts: 2, baseDelayMs: 300 }
+    ),
   ]);
 
   // Si l’utilisateur est déjà lié en « employé » (ex. flux Équipe·code), la RPC Postgres

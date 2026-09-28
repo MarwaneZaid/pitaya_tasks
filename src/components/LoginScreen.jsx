@@ -13,9 +13,8 @@ import {
   saveLastAuthEmail,
   slugFromRestaurantName,
   domainFromEmail,
-  isAuthAbortedError,
-  sleepMs,
 } from '../lib/authPrefs';
+import { withRetry, resetAuthAttempts, sleepMs } from '../lib/authRetry';
 
 /** Délai max par tentative Auth (sign-in / sign-up). Les appels peuvent être longs (TLS, mobile, proxy). */
 const AUTH_SIGNIN_ATTEMPT_MS = 120000;
@@ -82,23 +81,14 @@ async function withTimeout(
 }
 
 async function signInWithPasswordOnce(email, password) {
-  const maxTries = 3;
-  for (let i = 0; i < maxTries; i += 1) {
-    try {
-      return await withTimeout(
-        supabase.auth.signInWithPassword({ email, password }),
-        'Connexion trop lente. Réessayez dans quelques secondes.',
-        AUTH_SIGNIN_ATTEMPT_MS
-      );
-    } catch (e) {
-      if (isAuthAbortedError(e) && i < maxTries - 1) {
-        await sleepMs(350 * (i + 1));
-        continue;
-      }
-      throw e;
-    }
-  }
-  throw new Error('Connexion interrompue. Réessayez.');
+  return withRetry(
+    () => withTimeout(
+      supabase.auth.signInWithPassword({ email, password }),
+      'Connexion trop lente. Réessayez dans quelques secondes.',
+      AUTH_SIGNIN_ATTEMPT_MS
+    ),
+    { maxAttempts: 3, baseDelayMs: 350 }
+  );
 }
 
 function sessionFromSignInData(data) {
@@ -120,6 +110,7 @@ async function signInRememberedEmailFirst(name, userPassword) {
       if (em) saveLastAuthEmail(em);
       const d = domainFromEmail(em || stored);
       if (d === AUTH_DOMAIN || d === AUTH_DOMAIN_LEGACY) savePreferredAuthDomain(d);
+      resetAuthAttempts(); // Reset counter on success
       return { status: 'ok', session: sessionFromSignInData(data) };
     }
     if (isInvalidCredentialsError(error)) return { status: 'invalid' };
@@ -127,7 +118,9 @@ async function signInRememberedEmailFirst(name, userPassword) {
   } catch (e) {
     if (isInvalidCredentialsError(e)) return { status: 'invalid' };
     const msg = (e?.message || '').toLowerCase();
-    if (msg.includes('connexion trop lente')) return { status: 'fallback' };
+    if (msg.includes('connexion trop lente') || msg.includes('trop de tentatives')) {
+      return { status: 'fallback' };
+    }
     throw e;
   }
 }
@@ -146,6 +139,7 @@ async function signInWithFallbackDomains(name, userPassword) {
       savePreferredAuthDomain(domain);
       const em = data?.session?.user?.email || data?.user?.email;
       if (em) saveLastAuthEmail(em);
+      resetAuthAttempts(); // Reset counter on success
       const session = sessionFromSignInData(data);
       if (session) return session;
       throw new Error('Session introuvable après connexion.');

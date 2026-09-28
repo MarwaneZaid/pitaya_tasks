@@ -51,6 +51,7 @@ import {
   TASK_LIST_FILTER_OPTIONS,
 } from './config/opsConstants';
 import { clearLastAuthEmail } from './lib/authPrefs';
+import { resetAuthAttempts } from './lib/authRetry';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
@@ -387,12 +388,19 @@ export default function Dashboard({ onResetConfig }) {
               existing,
               userName || 'Système'
             );
+            let needReload = false;
             if (newTasks.length > 0) {
               try {
                 const savedTasks = await saveTasks(newTasks);
-                list.push(...savedTasks);
+                if (savedTasks.length === 0) {
+                  // Duplicate constraint hit (concurrent client/cron) → reload to get all tasks
+                  needReload = true;
+                } else {
+                  list.push(...savedTasks);
+                }
               } catch (matErr) {
                 console.warn('Matérialisation planning ignorée:', matErr);
+                needReload = true;
               }
             }
 
@@ -401,11 +409,29 @@ export default function Dashboard({ onResetConfig }) {
                 today,
                 userName || 'Système'
               );
-              if (checklistTasks.length > 0) {
+              if (checklistTasks.length === 0 && newTasks.length > 0) {
+                // Possible race: checklist tasks already created by concurrent client
+                needReload = true;
+              } else if (checklistTasks.length > 0) {
                 list.push(...checklistTasks);
               }
             } catch (checklistErr) {
               console.warn('Checklists non matérialisées:', checklistErr);
+              needReload = true;
+            }
+
+            // If we hit duplicates, reload today's tasks from DB to ensure we have the full set
+            if (needReload && supabase) {
+              try {
+                const reloaded = await getTasks(today);
+                // Merge: keep existing non-today tasks, add all today tasks from DB
+                list = [
+                  ...list.filter((t) => t.scheduledFor !== today),
+                  ...reloaded,
+                ];
+              } catch (reloadErr) {
+                console.warn('Rechargement post-race ignoré:', reloadErr);
+              }
             }
           }
         }
@@ -585,6 +611,7 @@ export default function Dashboard({ onResetConfig }) {
     clearRestaurantCache();
     sessionHydrateBurstRef.current = { uid: null, at: 0 };
     clearLastAuthEmail();
+    resetAuthAttempts();
     if (supabase) await supabase.auth.signOut();
     else { localStorage.removeItem(USER_NAME_KEY); setIsNameSet(false); setUserName(''); }
   };
@@ -598,6 +625,7 @@ export default function Dashboard({ onResetConfig }) {
     clearRestaurantCache();
     sessionHydrateBurstRef.current = { uid: null, at: 0 };
     clearLastAuthEmail();
+    resetAuthAttempts();
     clearSupabaseCredentials();
     if (onResetConfig) onResetConfig();
   };
