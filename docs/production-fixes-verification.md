@@ -141,24 +141,46 @@ supabase-p1-team-deadline.sql → supabase-p2-employee-rls-enforcement.sql (2x)
 - **Idempotency verified**: P2 migration applied twice with no errors
 - **Load status**: All migrations loaded cleanly (only expected publication error for local Postgres)
 
-### Blocker: Pre-Existing Infinite Recursion in user_roles RLS ⚠️
+### Blocker: Real Infinite Recursion in Base Schema ⚠️
 
-Full RLS verification could not be completed due to **pre-existing issue** in the base schema:
+Full RLS verification blocked by **confirmed infinite recursion** in `docs/supabase-dailydo-complete-fix.sql`:
 
 ```
 ERROR:  infinite recursion detected in policy for relation "user_roles"
 ```
 
-This error occurs when:
-- Trying to INSERT a task as authenticated user (manager role)
-- Trying to SELECT from tasks (which checks user_roles)  
-- Any policy that references `my_restaurant_ids()` or queries `user_roles`
+**The Recursion Chain:**
 
-**Root cause**: The `user_roles` table has RLS policies that create circular dependencies when combined with `my_restaurant_ids()` SECURITY DEFINER function.
+1. Tasks INSERT/SELECT → checks `my_restaurant_ids()` SECURITY DEFINER
+2. `my_restaurant_ids()` → `SELECT FROM user_roles WHERE user_id = auth.uid()`
+3. `user_roles_select_own` policy → `restaurant_id IN (SELECT FROM user_roles WHERE...)`
+4. Back to step 3 → **infinite recursion**
 
-**Impact**: Cannot test employee vs manager UPDATE behavior on real Postgres until this is fixed.
+**Root Cause (supabase-dailydo-complete-fix.sql:109-115):**
 
-**Note**: This is NOT a P2 issue—the same error occurs without P2 applied. The P2 SQL structure is correct:
+```sql
+CREATE POLICY "user_roles_select_own"
+  ON public.user_roles FOR SELECT TO authenticated
+  USING (
+    restaurant_id IN (
+      SELECT restaurant_id FROM public.user_roles WHERE user_id = auth.uid()
+    )
+  );
+```
+
+The policy has a **direct SELECT from `user_roles`** in its USING clause, which triggers the same policy again.
+
+**The Sep 17 Fix Was Incomplete:**
+
+The Sep 17 commit (`adee38e`) made `my_restaurant_ids()` SECURITY DEFINER, but didn't update the `user_roles_select_own` policy to avoid recursion. Production likely has manual fixes applied directly that aren't in this SQL file.
+
+**Why P2 Testing Is Still Blocked:**
+
+Even with proper setup (postgres owner with BYPASSRLS, Sep 17 fix included, no FORCE ROW LEVEL SECURITY), the base schema's `user_roles` policy prevents any authenticated-role queries from succeeding.
+
+**Impact**: Cannot verify P2 RLS behavior on local Postgres until base schema is fixed.
+
+**P2 SQL Structure** (independently verified correct):
 - ✅ Uses `SELECT public.my_restaurant_ids()` (not unnest)
 - ✅ Includes `DROP POLICY IF EXISTS` for idempotency
 - ✅ Preserves started_at correctly (only sets on first in_progress)
