@@ -537,6 +537,7 @@ export default function Dashboard({ onResetConfig }) {
     } catch (e) {
       console.error(e);
       setTasks(previous);
+      showToast({ message: `Erreur mise à jour note: ${e.message}`, variant: 'error' });
     }
   };
 
