@@ -1,5 +1,5 @@
 import { supabase, getSupabase } from './storage-supabase';
-import { isAuthAbortedError, sleepMs } from './authPrefs';
+import { withRetry, isAuthAbortedError } from './authRetry';
 import { mergeTasksWithUpsertRows } from './saveTasksMerge';
 import { normalizeTaskFields } from './taskStatus';
 import { mapTaskRows } from './taskRowMap';
@@ -157,17 +157,10 @@ export async function getUserRestaurant() {
 
   const userId = session.user.id;
   inflightUserRestaurant = (async () => {
-    let lastError;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        return await fetchRestaurantByUserId(client, userId);
-      } catch (e) {
-        lastError = e;
-        if (!isAuthAbortedError(e) || attempt >= 3) throw e;
-        await sleepMs(350 * (attempt + 1));
-      }
-    }
-    throw lastError;
+    return withRetry(
+      () => fetchRestaurantByUserId(client, userId),
+      { maxAttempts: 3, baseDelayMs: 350 }
+    );
   })().finally(() => {
     inflightUserRestaurant = null;
   });
@@ -186,7 +179,10 @@ export async function createRestaurant(name) {
 
   const [, prior] = await Promise.all([
     assertAuthUserSynced(client),
-    fetchRestaurantByUserId(client, userId),
+    withRetry(
+      () => fetchRestaurantByUserId(client, userId),
+      { maxAttempts: 2, baseDelayMs: 300 }
+    ),
   ]);
 
   // Si l’utilisateur est déjà lié en « employé » (ex. flux Équipe·code), la RPC Postgres
@@ -500,23 +496,76 @@ export async function saveTask(task) {
   const isExisting =
     typeof task.id === 'string' && task.id.length > 20;
 
-  // Upsert exige INSERT + UPDATE en RLS : les employés n'ont que UPDATE → update() pour les lignes existantes.
+  // Employee updates: use RPC for status/completion/proof (P2 RLS enforcement)
+  if (isExisting && resto.role === 'employee') {
+    const norm = normalizeTaskFields(task);
+    
+    try {
+      const { data, error } = await client.rpc('update_task_status_employee', {
+        p_task_id: task.id,
+        p_status: norm.status || null,
+        p_completed: norm.completed ?? null,
+        p_proof_note: task.proofNote || null,
+        p_completed_by: norm.completedBy || null,
+      });
+
+      if (error) throw error;
+
+      // RPC returns jsonb with real keys
+      return {
+        ...task,
+        id: data.id || task.id,
+        status: data.status || norm.status,
+        completed: data.completed ?? norm.completed,
+        proofNote: data.proof_note || null,
+        completedBy: data.completed_by || null,
+        completedAt: data.completed_at || null,
+        startedAt: data.started_at || null,
+      };
+    } catch (rpcError) {
+      // Fallback to direct UPDATE if RPC doesn't exist (pre-migration)
+      const msg = rpcError?.message || '';
+      const code = rpcError?.code;
+      const isRpcMissing =
+        code === 'PGRST202' ||
+        code === '42883' ||
+        (msg.includes('function') && msg.includes('does not exist'));
+      
+      if (isRpcMissing) {
+        console.warn('RPC not found, falling back to direct UPDATE (pre-migration)');
+        const dbTask = {
+          status: norm.status,
+          completed: norm.completed,
+          started_at: norm.startedAt,
+          completed_at: norm.completedAt,
+          completed_by: norm.completedBy,
+          proof_note: task.proofNote || null,
+        };
+
+        const { data, error } = await client
+          .from('tasks')
+          .update(dbTask)
+          .eq('id', task.id)
+          .eq('restaurant_id', resto.id)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('Erreur saveTask (employee fallback):', error);
+          throw error;
+        }
+        return mapTaskRows([data])[0];
+      }
+      
+      // Other RPC errors (cross-restaurant, etc)
+      console.error('Erreur saveTask (employee RPC):', rpcError);
+      throw rpcError;
+    }
+  }
+
+  // Manager/Owner: direct UPDATE with all fields
   if (isExisting) {
-    // Employé : n’envoie que les champs de progression (aligné trigger SQL P0).
-    const dbTask =
-      resto.role === 'employee'
-        ? (() => {
-            const norm = normalizeTaskFields(task);
-            return {
-              status: norm.status,
-              completed: norm.completed,
-              started_at: norm.startedAt,
-              completed_at: norm.completedAt,
-              completed_by: norm.completedBy,
-              proof_note: task.proofNote || null,
-            };
-          })()
-        : taskToDbPayload(resto, task);
+    const dbTask = taskToDbPayload(resto, task);
 
     const { data, error } = await client
       .from('tasks')
@@ -533,8 +582,9 @@ export async function saveTask(task) {
     return mapTaskRows([data])[0];
   }
 
+  // New task: INSERT (managers only via RLS)
   const dbTask = taskToDbPayload(resto, task);
-  const { data, error } = await client
+  const { data, error} = await client
     .from('tasks')
     .insert([dbTask])
     .select()

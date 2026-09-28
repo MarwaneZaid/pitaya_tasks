@@ -43,6 +43,7 @@ import {
   getTeamMembers,
 } from './lib/db';
 import { nextStatus, normalizeTaskFields } from './lib/taskStatus';
+import { shouldReloadAfterMaterialize, mergeTasks } from './lib/taskMaterialize';
 import {
   TASK_STATUS_DONE,
   OPS_POSTS,
@@ -51,6 +52,7 @@ import {
   TASK_LIST_FILTER_OPTIONS,
 } from './config/opsConstants';
 import { clearLastAuthEmail } from './lib/authPrefs';
+import { resetAuthAttempts } from './lib/authRetry';
 import LoginScreen from './components/LoginScreen';
 import Onboarding from './components/Onboarding';
 import PlanningSettings from './components/PlanningSettings';
@@ -387,17 +389,23 @@ export default function Dashboard({ onResetConfig }) {
               existing,
               userName || 'Système'
             );
+            let savedTasks = [];
+            let checklistSuccess = true;
+
             if (newTasks.length > 0) {
               try {
-                const savedTasks = await saveTasks(newTasks);
-                list.push(...savedTasks);
+                savedTasks = await saveTasks(newTasks);
+                if (savedTasks.length > 0) {
+                  list.push(...savedTasks);
+                }
               } catch (matErr) {
                 console.warn('Matérialisation planning ignorée:', matErr);
               }
             }
 
+            let checklistTasks = [];
             try {
-              const checklistTasks = await materializeChecklistsForDate(
+              checklistTasks = await materializeChecklistsForDate(
                 today,
                 userName || 'Système'
               );
@@ -406,6 +414,20 @@ export default function Dashboard({ onResetConfig }) {
               }
             } catch (checklistErr) {
               console.warn('Checklists non matérialisées:', checklistErr);
+              checklistSuccess = false;
+            }
+
+            // Reload from DB if we hit duplicates or checklist materialization failed
+            if (shouldReloadAfterMaterialize(savedTasks, checklistSuccess) && supabase) {
+              try {
+                const reloaded = await getTasks(today);
+                list = mergeTasks(
+                  list.filter((t) => t.scheduledFor !== today),
+                  reloaded
+                );
+              } catch (reloadErr) {
+                console.warn('Rechargement post-race ignoré:', reloadErr);
+              }
             }
           }
         }
@@ -511,6 +533,7 @@ export default function Dashboard({ onResetConfig }) {
     } catch (e) {
       console.error(e);
       setTasks(previous);
+      showToast({ message: `Erreur mise à jour note: ${e.message}`, variant: 'error' });
     }
   };
 
@@ -585,6 +608,7 @@ export default function Dashboard({ onResetConfig }) {
     clearRestaurantCache();
     sessionHydrateBurstRef.current = { uid: null, at: 0 };
     clearLastAuthEmail();
+    resetAuthAttempts();
     if (supabase) await supabase.auth.signOut();
     else { localStorage.removeItem(USER_NAME_KEY); setIsNameSet(false); setUserName(''); }
   };
@@ -598,6 +622,7 @@ export default function Dashboard({ onResetConfig }) {
     clearRestaurantCache();
     sessionHydrateBurstRef.current = { uid: null, at: 0 };
     clearLastAuthEmail();
+    resetAuthAttempts();
     clearSupabaseCredentials();
     if (onResetConfig) onResetConfig();
   };
