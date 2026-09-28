@@ -6,6 +6,7 @@
  * 2. SECURITY DEFINER RPC allows employees to update status/completion/proof only
  * 
  * Uses SECURITY DEFINER helpers to avoid Sep 17 user_roles RLS bug.
+ * Idempotent: safe to run multiple times.
  */
 
 BEGIN;
@@ -24,6 +25,10 @@ AS $$
     AND restaurant_id = p_restaurant_id
   LIMIT 1;
 $$;
+
+REVOKE ALL ON FUNCTION public.my_role_for_restaurant(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.my_role_for_restaurant(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.my_role_for_restaurant(uuid) TO authenticated;
 
 -- Employee task status update RPC (SECURITY DEFINER, field-restricted)
 CREATE OR REPLACE FUNCTION public.update_task_status_employee(
@@ -60,28 +65,38 @@ BEGIN
   END IF;
 
   -- Update only allowed fields
-  -- When task is not completed, clear completion fields
+  -- Match old client semantics: clear completion fields when undoing, set started_at only on first in_progress
   IF p_completed = false OR (p_completed IS NULL AND p_status IS DISTINCT FROM 'done') THEN
+    -- Task is being undone or moved away from done
     UPDATE tasks
     SET
       status = COALESCE(p_status, status),
-      completed = COALESCE(p_completed, false),
+      completed = false,
       proof_note = p_proof_note,
       completed_by = NULL,
-      started_at = CASE WHEN p_status IS NOT NULL THEN now() ELSE started_at END,
-      completed_at = NULL
+      completed_at = NULL,
+      started_at = CASE 
+        WHEN p_status = 'in_progress' AND started_at IS NULL THEN now()
+        ELSE started_at
+      END
     WHERE id = p_task_id
     RETURNING * INTO v_task;
   ELSE
-    -- Task is being completed
+    -- Task is being completed or status updated while still done
     UPDATE tasks
     SET
       status = COALESCE(p_status, status),
       completed = COALESCE(p_completed, completed),
       proof_note = p_proof_note,
       completed_by = COALESCE(p_completed_by, completed_by),
-      started_at = CASE WHEN p_status IS NOT NULL THEN now() ELSE started_at END,
-      completed_at = CASE WHEN p_completed = true THEN now() ELSE completed_at END
+      completed_at = CASE 
+        WHEN p_completed = true AND completed_at IS NULL THEN now()
+        ELSE completed_at
+      END,
+      started_at = CASE 
+        WHEN p_status = 'in_progress' AND started_at IS NULL THEN now()
+        ELSE started_at
+      END
     WHERE id = p_task_id
     RETURNING * INTO v_task;
   END IF;
@@ -103,21 +118,21 @@ BEGIN
 END;
 $$;
 
--- Grant execute to authenticated users
-GRANT EXECUTE ON FUNCTION public.update_task_status_employee TO authenticated;
+REVOKE ALL ON FUNCTION public.update_task_status_employee(uuid, text, boolean, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.update_task_status_employee(uuid, text, boolean, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.update_task_status_employee(uuid, text, boolean, text, text) TO authenticated;
 
 -- Drop old permissive policy
 DROP POLICY IF EXISTS tasks_update_all ON public.tasks;
 
 -- New policy: only managers/owners can UPDATE directly
 -- Uses SECURITY DEFINER helper to avoid user_roles RLS issues
+DROP POLICY IF EXISTS tasks_update_manager_owner ON public.tasks;
 CREATE POLICY tasks_update_manager_owner ON public.tasks
   FOR UPDATE
   TO authenticated
   USING (
-    restaurant_id IN (
-      SELECT unnest(my_restaurant_ids())
-    )
+    restaurant_id IN (SELECT public.my_restaurant_ids())
     AND my_role_for_restaurant(restaurant_id) IN ('manager', 'owner')
   );
 

@@ -128,9 +128,56 @@ Client-side only. No database changes. Safe to deploy immediately.
 
 ---
 
-## Overall Test Status
+## Postgres Verification (P2 Migration)
 
-**Test Suite**: ✅ **91/91 tests passing**
+### Migration Chain Applied Successfully ✅
+
+```
+test-auth-stub.sql → supabase-dailydo-complete-fix.sql → 
+supabase-p0-hardening.sql → supabase-phase1-ops.sql →
+supabase-p1-team-deadline.sql → supabase-p2-employee-rls-enforcement.sql (2x)
+```
+
+- **Idempotency verified**: P2 migration applied twice with no errors
+- **Load status**: All migrations loaded cleanly (only expected publication error for local Postgres)
+
+### Blocker: Pre-Existing Infinite Recursion in user_roles RLS ⚠️
+
+Full RLS verification could not be completed due to **pre-existing issue** in the base schema:
+
+```
+ERROR:  infinite recursion detected in policy for relation "user_roles"
+```
+
+This error occurs when:
+- Trying to INSERT a task as authenticated user (manager role)
+- Trying to SELECT from tasks (which checks user_roles)  
+- Any policy that references `my_restaurant_ids()` or queries `user_roles`
+
+**Root cause**: The `user_roles` table has RLS policies that create circular dependencies when combined with `my_restaurant_ids()` SECURITY DEFINER function.
+
+**Impact**: Cannot test employee vs manager UPDATE behavior on real Postgres until this is fixed.
+
+**Note**: This is NOT a P2 issue—the same error occurs without P2 applied. The P2 SQL structure is correct:
+- ✅ Uses `SELECT public.my_restaurant_ids()` (not unnest)
+- ✅ Includes `DROP POLICY IF EXISTS` for idempotency
+- ✅ Preserves started_at correctly (only sets on first in_progress)
+- ✅ Has proper REVOKE/GRANT with full signatures
+- ✅ Clears completed_at/by when undoing
+
+### SQL Structure Verification ✅
+
+**Verified manually in P2 SQL:**
+
+1. **Policy uses SETOF uuid correctly**: `restaurant_id IN (SELECT public.my_restaurant_ids())`
+2. **Idempotent**: `DROP POLICY IF EXISTS tasks_update_manager_owner`
+3. **started_at logic**: Only set when `p_status = 'in_progress' AND started_at IS NULL`
+4. **Completion undo**: Clears `completed_at`/`completed_by` when `p_completed = false`
+5. **REVOKE/GRANT**: Full function signatures with PUBLIC and anon revoked
+
+##Overall Test Status
+
+**Test Suite**: ✅ **103/103 tests passing** (+12 new)
 
 ```
  ✓ src/lib/authRetry.test.js (9 tests) 2390ms
