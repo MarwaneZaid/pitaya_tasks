@@ -43,6 +43,7 @@ import {
   getTeamMembers,
 } from './lib/db';
 import { nextStatus, normalizeTaskFields } from './lib/taskStatus';
+import { shouldReloadAfterMaterialize, mergeTasks } from './lib/taskMaterialize';
 import {
   TASK_STATUS_DONE,
   OPS_POSTS,
@@ -388,47 +389,42 @@ export default function Dashboard({ onResetConfig }) {
               existing,
               userName || 'Système'
             );
-            let needReload = false;
+            let savedTasks = [];
+            let checklistSuccess = true;
+
             if (newTasks.length > 0) {
               try {
-                const savedTasks = await saveTasks(newTasks);
-                if (savedTasks.length === 0) {
-                  // Duplicate constraint hit (concurrent client/cron) → reload to get all tasks
-                  needReload = true;
-                } else {
+                savedTasks = await saveTasks(newTasks);
+                if (savedTasks.length > 0) {
                   list.push(...savedTasks);
                 }
               } catch (matErr) {
                 console.warn('Matérialisation planning ignorée:', matErr);
-                needReload = true;
               }
             }
 
+            let checklistTasks = [];
             try {
-              const checklistTasks = await materializeChecklistsForDate(
+              checklistTasks = await materializeChecklistsForDate(
                 today,
                 userName || 'Système'
               );
-              if (checklistTasks.length === 0 && newTasks.length > 0) {
-                // Possible race: checklist tasks already created by concurrent client
-                needReload = true;
-              } else if (checklistTasks.length > 0) {
+              if (checklistTasks.length > 0) {
                 list.push(...checklistTasks);
               }
             } catch (checklistErr) {
               console.warn('Checklists non matérialisées:', checklistErr);
-              needReload = true;
+              checklistSuccess = false;
             }
 
-            // If we hit duplicates, reload today's tasks from DB to ensure we have the full set
-            if (needReload && supabase) {
+            // Reload from DB if we hit duplicates or checklist materialization failed
+            if (shouldReloadAfterMaterialize(savedTasks, checklistSuccess) && supabase) {
               try {
                 const reloaded = await getTasks(today);
-                // Merge: keep existing non-today tasks, add all today tasks from DB
-                list = [
-                  ...list.filter((t) => t.scheduledFor !== today),
-                  ...reloaded,
-                ];
+                list = mergeTasks(
+                  list.filter((t) => t.scheduledFor !== today),
+                  reloaded
+                );
               } catch (reloadErr) {
                 console.warn('Rechargement post-race ignoré:', reloadErr);
               }

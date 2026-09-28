@@ -511,21 +511,25 @@ export async function saveTask(task) {
 
       if (error) throw error;
 
-      // RPC returns to_jsonb(row(...)) which produces f1-f7 fields
+      // RPC returns jsonb with real keys
       return {
         ...task,
-        id: data.f1 || task.id,
-        status: data.f2 || norm.status,
-        completed: data.f3 ?? norm.completed,
-        proofNote: data.f4 || task.proofNote,
-        completedBy: data.f5 || norm.completedBy,
-        completedAt: data.f6 || norm.completedAt,
-        startedAt: data.f7 || norm.startedAt,
+        id: data.id || task.id,
+        status: data.status || norm.status,
+        completed: data.completed ?? norm.completed,
+        proofNote: data.proof_note || null,
+        completedBy: data.completed_by || null,
+        completedAt: data.completed_at || null,
+        startedAt: data.started_at || null,
       };
     } catch (rpcError) {
       // Fallback to direct UPDATE if RPC doesn't exist (pre-migration)
       const msg = rpcError?.message || '';
-      const isRpcMissing = msg.includes('function') && msg.includes('does not exist');
+      const code = rpcError?.code;
+      const isRpcMissing =
+        code === 'PGRST202' ||
+        code === '42883' ||
+        (msg.includes('function') && msg.includes('does not exist'));
       
       if (isRpcMissing) {
         console.warn('RPC not found, falling back to direct UPDATE (pre-migration)');
