@@ -11,6 +11,15 @@
 
 BEGIN;
 
+-- Fix recursive user_roles_select_own policy (if it exists from base schema)
+-- The old policy queries user_roles in its own USING clause, causing infinite recursion
+-- when my_restaurant_ids() tries to read user_roles. Replace with non-recursive version.
+DROP POLICY IF EXISTS "user_roles_select_own" ON public.user_roles;
+DROP POLICY IF EXISTS user_roles_select ON public.user_roles;
+CREATE POLICY user_roles_select 
+  ON public.user_roles FOR SELECT TO authenticated
+  USING (restaurant_id IN (SELECT public.my_restaurant_ids()));
+
 -- Helper: Get user's role for a specific restaurant (SECURITY DEFINER to bypass user_roles RLS)
 CREATE OR REPLACE FUNCTION public.my_role_for_restaurant(p_restaurant_id uuid)
 RETURNS text

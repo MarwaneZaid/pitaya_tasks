@@ -128,7 +128,32 @@ Client-side only. No database changes. Safe to deploy immediately.
 
 ---
 
-## Postgres Verification (P2 Migration)
+## Postgres Verification (P2 Migration) ✅ COMPLETE
+
+### Setup
+
+- PostgreSQL 16 on Ubuntu
+- postgres role owns all functions/tables (BYPASSRLS=true)
+- authenticated/anon roles WITHOUT BYPASSRLS
+- No FORCE ROW LEVEL SECURITY
+- Sep 17 fix included (`my_restaurant_ids()` SECURITY DEFINER)
+- **P2 fix for recursive policy** applied
+
+### Fixed Recursive Policy Issue
+
+Added to top of P2 migration:
+```sql
+-- Fix recursive user_roles_select_own policy (if it exists from base schema)
+DROP POLICY IF EXISTS "user_roles_select_own" ON public.user_roles;
+DROP POLICY IF EXISTS user_roles_select ON public.user_roles;
+CREATE POLICY user_roles_select 
+  ON public.user_roles FOR SELECT TO authenticated
+  USING (restaurant_id IN (SELECT public.my_restaurant_ids()));
+```
+
+This fixes the infinite recursion caused by the old policy querying `user_roles` in its own USING clause.
+
+## Postgres Verification Results (Full Test Output)
 
 ### Migration Chain Applied Successfully ✅
 
@@ -257,3 +282,144 @@ Even with proper setup (postgres owner with BYPASSRLS, Sep 17 fix included, no F
 **Last Updated**: 2026-09-28  
 **Verified By**: Cloud Agent (Cursor)  
 **Environment**: Local development + Postgres 16
+
+```
+Test 1: Employee direct UPDATE of title
+Expected: UPDATE 0 (blocked by RLS)
+=========================================
+UPDATE 0
+title=Test Task, status=todo
+
+✓ Employee cannot modify title via direct UPDATE
+
+
+Test 2: Employee RPC sets done
+=========================================
+{
+    "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    "status": "done",
+    "completed": true,
+    "proof_note": "Completed via RPC",
+    "started_at": null,
+    "completed_at": "2026-09-28T21:10:26.06557+00:00",
+    "completed_by": "Employee User"
+}
+
+status=done, completed=true, completed_by=Employee User, has_completed_at=true
+
+✓ Employee RPC successfully sets done with completed_by and completed_at
+
+
+Test 3: Employee RPC undoes to todo
+=========================================
+{
+    "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    "status": "todo",
+    "completed": false,
+    "proof_note": null,
+    "started_at": null,
+    "completed_at": null,
+    "completed_by": null
+}
+
+status=todo, completed=false, completed_by=NULL, completed_at=NULL
+
+✓ Undoing completion clears completed_at and completed_by
+
+
+Test 4: Employee RPC sets in_progress (first time)
+=========================================
+{
+    "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    "status": "in_progress",
+    "completed": false,
+    "proof_note": "Working on it",
+    "started_at": "2026-09-28T21:10:26.06993+00:00",
+    "completed_at": null,
+    "completed_by": null
+}
+
+✓ started_at set on first move to in_progress
+
+
+Test 5: Employee RPC to done (started_at preserved)
+=========================================
+{
+    "id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+    "status": "done",
+    "completed": true,
+    "proof_note": "Completed",
+    "started_at": "2026-09-28T21:10:26.06993+00:00",
+    "completed_at": "2026-09-28T21:10:26.372971+00:00",
+    "completed_by": "Emp"
+}
+
+status=done, started_at_check=PRESERVED ✓
+
+✓ started_at NOT changed on subsequent status changes (300ms sleep verified)
+
+
+Test 6: Cross-restaurant employee (expect error)
+=========================================
+ERROR:  Accès refusé : vous n'êtes pas membre de ce restaurant
+CONTEXT:  PL/pgSQL function update_task_status_employee
+
+✓ Cross-restaurant access properly blocked
+
+
+Test 7: Manager direct UPDATE
+=========================================
+UPDATE 1
+title=Updated by Manager, has_deadline=true
+
+✓ Manager can update all fields via direct UPDATE
+
+
+Test 8: Owner direct UPDATE
+=========================================
+UPDATE 1
+title=Updated by Owner, priority=haute, category=cuisine
+
+✓ Owner can update all fields via direct UPDATE
+
+
+Test 9: Employee can SELECT own user_roles
+=========================================
+role=employee, restaurant=11111111-1111-1111-1111-111111111111
+
+✓ Employee can SELECT own user_roles row (no recursion)
+
+
+Test 10: Employee can SELECT restaurant tasks
+=========================================
+Found 1 task(s) in own restaurant
+
+✓ Employee can SELECT tasks in own restaurant (no recursion)
+```
+
+### Verification Summary
+
+**All 10 tests passed:**
+
+1. ✅ Employee direct UPDATE of title → 0 rows (blocked by RLS)
+2. ✅ Employee RPC sets done → completed_by and completed_at set correctly
+3. ✅ Employee RPC undoes to todo → completed_at/by cleared to NULL
+4. ✅ Employee RPC sets in_progress → started_at set (first time only)
+5. ✅ Employee RPC to done again → started_at PRESERVED (not overwritten)
+6. ✅ Cross-restaurant employee → ERROR (Accès refusé)
+7. ✅ Manager direct UPDATE → title and deadline updated
+8. ✅ Owner direct UPDATE → all fields updated
+9. ✅ Employee can SELECT own user_roles → 1 row returned
+10. ✅ Employee can SELECT restaurant tasks → 1 task found
+
+**Key Validations:**
+
+- RLS blocks employee direct UPDATE of restricted fields
+- RPC enforces field-level restrictions correctly
+- started_at only set on first in_progress, never overwritten
+- Completion undo properly clears completed_at and completed_by
+- Cross-restaurant access blocked by RPC membership check
+- Managers/owners retain full direct UPDATE access
+- No infinite recursion with fixed policy
+- Proper jsonb response with real keys (not f1-f7)
+
